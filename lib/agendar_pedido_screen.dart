@@ -21,14 +21,26 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
   final telefonoCtrl = TextEditingController();
   final notasCtrl = TextEditingController();
 
+  final Color azulPastelFondo = const Color(0xFFF0F8FF); 
+  final Color azulPastelPrincipal = const Color(0xFFB3E5FC); 
+  final Color azulPastelOscuro = const Color(0xFF81D4FA); 
+
   List<dynamic> todosLosProductos = [];
-  List<dynamic> productosFiltrados = []; // Nueva lista para el filtro
-  String categoriaSeleccionada = "Torta"; // Categoría por defecto
+  List<dynamic> productosFiltrados = []; 
+  String categoriaSeleccionada = "Torta"; 
 
   Map<String, dynamic>? tortaSeleccionada;
   Map<String, dynamic>? tamanoSeleccionado;
   String bloqueSeleccionado = "TARDE";
+  
+  // NUEVAS VARIABLES PARA COBERTURA
+  String coberturaSeleccionada = "Merengue";
+  final Map<String, int> recargosChantilly = {
+    "10": 1500, "15": 3000, "20": 4500, "30": 6000, "40": 8000, "50": 10000
+  };
+
   bool cargando = true;
+  final String _baseUrl = "https://pasteleria-backend-production-24fc.up.railway.app/api";
 
   @override
   void initState() {
@@ -36,34 +48,42 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
     _cargarDatosIniciales();
   }
 
+  // CALCULO DINÁMICO DE PRECIO
+  double _getPrecioFinal() {
+    if (tamanoSeleccionado == null) return 0.0;
+    double precioBase = double.tryParse(tamanoSeleccionado!['precio'].toString()) ?? 0.0;
+    
+    if (coberturaSeleccionada == "Crema") {
+      String cap = tamanoSeleccionado!['capacidad'].toString().replaceAll(RegExp(r'[^0-9]'), '');
+      int extra = recargosChantilly[cap] ?? 0;
+      return precioBase + extra;
+    }
+    return precioBase;
+  }
+
   String _obtenerSufijo(String nombre) {
     nombre = nombre.toLowerCase();
     return (nombre.contains("torta") || nombre.contains("pastel")) ? "personas" : "unidades";
   }
 
-  // --- NUEVA FUNCIÓN DE FILTRADO ---
   void _filtrarProductos(String categoria) {
     setState(() {
       categoriaSeleccionada = categoria;
       productosFiltrados = todosLosProductos.where((p) {
         return (p['categoria']?.toString().toLowerCase() ?? "") == categoria.toLowerCase();
       }).toList();
-      
-      // Si cambiamos de categoría, reseteamos la torta seleccionada 
-      // para evitar que el dropdown intente mostrar un ID que no está en la lista filtrada
       tortaSeleccionada = null;
       tamanoSeleccionado = null;
     });
   }
 
   Future<void> _cargarDatosIniciales() async {
-    final url = Uri.parse('http://192.168.1.86:8080/api/tortas');
+    final url = Uri.parse('$_baseUrl/tortas');
     try {
       final res = await http.get(url);
       if (res.statusCode == 200) {
         setState(() {
           todosLosProductos = json.decode(res.body);
-          
           if (widget.pedidoParaEditar != null) {
             final p = widget.pedidoParaEditar!;
             nombreClienteCtrl.text = p['nombreCliente'] ?? "";
@@ -71,7 +91,6 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
             notasCtrl.text = p['notas'] ?? "";
             bloqueSeleccionado = p['bloqueHorario'] ?? "TARDE";
             
-            // Si editamos, detectamos la categoría del producto original
             tortaSeleccionada = todosLosProductos.firstWhere(
               (t) => t['id'] == p['torta']['id'],
               orElse: () => null,
@@ -79,18 +98,14 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
 
             if (tortaSeleccionada != null) {
               categoriaSeleccionada = tortaSeleccionada!['categoria'] ?? "Torta";
-              
               List tamanos = tortaSeleccionada!['tamanos'];
               String numeroBd = p['detalleTamano'].toString().replaceAll(RegExp(r'[^0-9]'), '');
-              
               tamanoSeleccionado = tamanos.firstWhere(
                 (tam) => tam['capacidad'].toString().replaceAll(RegExp(r'[^0-9]'), '') == numeroBd,
                 orElse: () => null,
               );
             }
           }
-          
-          // Aplicamos el filtro inicial
           _filtrarProductos(categoriaSeleccionada);
           cargando = false;
         });
@@ -101,21 +116,25 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
   }
 
   Future<void> _guardarPedido() async {
-    if (nombreClienteCtrl.text.isEmpty || tortaSeleccionada == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Faltan datos")));
+    if (nombreClienteCtrl.text.isEmpty || tortaSeleccionada == null || tamanoSeleccionado == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Por favor, selecciona producto y tamaño"))
+      );
       return;
     }
 
     final isEdit = widget.pedidoParaEditar != null;
     final url = isEdit 
-      ? Uri.parse('http://192.168.1.86:8080/api/pedidos/${widget.pedidoParaEditar!['id']}')
-      : Uri.parse('http://192.168.1.86:8080/api/pedidos');
+      ? Uri.parse('$_baseUrl/pedidos/${widget.pedidoParaEditar!['id']}')
+      : Uri.parse('$_baseUrl/pedidos');
 
-    final detalleRaw = tamanoSeleccionado != null 
-        ? tamanoSeleccionado!['capacidad'] 
-        : widget.pedidoParaEditar?['detalleTamano'];
+    final detalleLimpio = tamanoSeleccionado!['capacidad'].toString().replaceAll(RegExp(r'[^0-9]'), '');
     
-    final detalleLimpio = detalleRaw.toString().replaceAll(RegExp(r'[^0-9]'), '');
+    // Si es crema, lo agregamos a las notas para que tú lo veas en la agenda
+    String notasFinales = notasCtrl.text;
+    if (coberturaSeleccionada == "Crema") {
+      notasFinales = "[COBERTURA CREMA CHANTILLY] $notasFinales";
+    }
 
     final datosPedido = {
       "nombreCliente": nombreClienteCtrl.text,
@@ -125,8 +144,8 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
       "estado": isEdit ? widget.pedidoParaEditar!['estado'] : "PENDIENTE",
       "torta": {"id": tortaSeleccionada!['id']},
       "detalleTamano": detalleLimpio,
-      "precioFinal": tamanoSeleccionado != null ? tamanoSeleccionado!['precio'] : widget.pedidoParaEditar?['precioFinal'],
-      "notas": notasCtrl.text
+      "precioFinal": _getPrecioFinal(),
+      "notas": notasFinales
     };
 
     try {
@@ -134,7 +153,9 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
         ? await http.put(url, headers: {"Content-Type": "application/json"}, body: json.encode(datosPedido))
         : await http.post(url, headers: {"Content-Type": "application/json"}, body: json.encode(datosPedido));
 
-      if (res.statusCode == 200 || res.statusCode == 201) Navigator.pop(context, true);
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        Navigator.pop(context, true);
+      }
     } catch (e) {
       debugPrint("Error: $e");
     }
@@ -143,114 +164,202 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.pedidoParaEditar != null;
+    final bool permiteDobleCobertura = tortaSeleccionada != null && 
+        (tortaSeleccionada!['coberturaVariada'] == true || tortaSeleccionada!['coberturaVariada'] == "true");
+
     return Scaffold(
+      backgroundColor: azulPastelFondo,
       appBar: AppBar(
-        title: Text(isEdit ? "Editar Pedido ✏️" : "Nuevo Pedido 📝"),
-        backgroundColor: Colors.orangeAccent,
+        title: Text(isEdit ? "Editar Pedido ✏️" : "Nuevo Pedido 📝", style: const TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: azulPastelPrincipal,
+        foregroundColor: Colors.blueGrey[800],
       ),
       body: cargando 
-        ? const Center(child: CircularProgressIndicator())
+        ? Center(child: CircularProgressIndicator(color: azulPastelOscuro))
         : ListView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(25),
             children: [
-              TextField(controller: nombreClienteCtrl, decoration: const InputDecoration(labelText: "Nombre del Cliente")),
-              TextField(controller: telefonoCtrl, decoration: const InputDecoration(labelText: "Teléfono"), keyboardType: TextInputType.phone),
-              const SizedBox(height: 25),
+              _buildSectionTitle("Información del Cliente"),
+              const SizedBox(height: 15),
+              _buildTextField(nombreClienteCtrl, "Nombre del Cliente", Icons.person_outline),
+              const SizedBox(height: 15),
+              _buildTextField(telefonoCtrl, "Teléfono", Icons.phone_android_outlined, keyboardType: TextInputType.phone),
               
-              // --- SECCIÓN DE FILTRO POR CATEGORÍA ---
-              const Text("1. Seleccione Categoría:", style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
+              const SizedBox(height: 30),
+              _buildSectionTitle("1. Categoría"),
+              const SizedBox(height: 15),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _filtroChip("Torta", Icons.cake),
-                  _filtroChip("Tarta", Icons.pie_chart),
-                  _filtroChip("Pastelito", Icons.cookie),
+                  _filtroChip("Torta", Icons.cake_outlined),
+                  _filtroChip("Tarta", Icons.pie_chart_outline),
+                  _filtroChip("Pastelito", Icons.cookie_outlined),
                 ],
               ),
 
-              const SizedBox(height: 20),
-              const Text("2. Producto:", style: TextStyle(fontWeight: FontWeight.bold)),
-              DropdownButton<Map<String, dynamic>>(
-                isExpanded: true,
-                value: tortaSeleccionada,
-                hint: Text("Elegir ${categoriaSeleccionada.toLowerCase()}"),
-                items: productosFiltrados.map((t) => DropdownMenuItem<Map<String, dynamic>>(
-                  value: t, 
-                  child: Text(t['nombre'])
-                )).toList(),
-                onChanged: (val) => setState(() { tortaSeleccionada = val; tamanoSeleccionado = null; }),
+              const SizedBox(height: 30),
+              _buildSectionTitle("2. Producto"),
+              const SizedBox(height: 10),
+              _buildDropdownContainer(
+                DropdownButton<Map<String, dynamic>>(
+                  isExpanded: true,
+                  value: tortaSeleccionada,
+                  underline: const SizedBox(),
+                  hint: Text("Elegir ${categoriaSeleccionada.toLowerCase()}"),
+                  items: productosFiltrados.map((t) => DropdownMenuItem<Map<String, dynamic>>(
+                    value: t, child: Text(t['nombre'])
+                  )).toList(),
+                  onChanged: (val) => setState(() { tortaSeleccionada = val; tamanoSeleccionado = null; }),
+                ),
               ),
 
               if (tortaSeleccionada != null) ...[
-                const SizedBox(height: 20),
-                const Text("3. Tamaño / Cantidad:", style: TextStyle(fontWeight: FontWeight.bold)),
-                DropdownButton<Map<String, dynamic>>(
-                  isExpanded: true,
-                  value: tamanoSeleccionado,
-                  hint: const Text("Elegir opción"),
-                  items: (tortaSeleccionada!['tamanos'] as List).map((tam) {
-                    String num = tam['capacidad'].toString().replaceAll(RegExp(r'[^0-9]'), '');
-                    String sufijo = _obtenerSufijo(tortaSeleccionada!['nombre']);
-                    return DropdownMenuItem<Map<String, dynamic>>(
-                      value: tam, 
-                      child: Text("$num $sufijo - \$${tam['precio']}")
-                    );
-                  }).toList(),
-                  onChanged: (val) => setState(() => tamanoSeleccionado = val),
+                const SizedBox(height: 25),
+                _buildSectionTitle("3. Tamaño / Cantidad"),
+                const SizedBox(height: 10),
+                _buildDropdownContainer(
+                  DropdownButton<Map<String, dynamic>>(
+                    isExpanded: true,
+                    value: tamanoSeleccionado,
+                    underline: const SizedBox(),
+                    hint: const Text("Elegir opción"),
+                    items: (tortaSeleccionada!['tamanos'] as List).map((tam) {
+                      String num = tam['capacidad'].toString().replaceAll(RegExp(r'[^0-9]'), '');
+                      String sufijo = _obtenerSufijo(tortaSeleccionada!['nombre']);
+                      return DropdownMenuItem<Map<String, dynamic>>(
+                        value: tam, child: Text("$num $sufijo - \$${tam['precio']}")
+                      );
+                    }).toList(),
+                    onChanged: (val) => setState(() => tamanoSeleccionado = val),
+                  ),
                 ),
               ],
 
-              const SizedBox(height: 25),
-              const Text("4. Horario de Entrega:", style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 5),
+              // --- SECCIÓN NUEVA: SELECTOR DE COBERTURA EN AGENDA ---
+              if (permiteDobleCobertura && tamanoSeleccionado != null) ...[
+                const SizedBox(height: 25),
+                _buildSectionTitle("4. Tipo de Cobertura"),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    ChoiceChip(
+                      label: const Text("Merengue"),
+                      selected: coberturaSeleccionada == "Merengue",
+                      onSelected: (s) => setState(() => coberturaSeleccionada = "Merengue"),
+                      selectedColor: azulPastelPrincipal,
+                    ),
+                    const SizedBox(width: 15),
+                    ChoiceChip(
+                      label: const Text("Crema Chantilly"),
+                      selected: coberturaSeleccionada == "Crema",
+                      onSelected: (s) => setState(() => coberturaSeleccionada = "Crema"),
+                      selectedColor: Colors.orange[100],
+                    ),
+                  ],
+                ),
+              ],
+
+              const SizedBox(height: 30),
+              _buildSectionTitle("5. Horario de Entrega"),
+              const SizedBox(height: 10),
               Row(
                 children: [
-                  ChoiceChip(
-                    label: const Text("☀️ Tarde"), 
-                    selected: bloqueSeleccionado == "TARDE", 
-                    onSelected: (s) => setState(() => bloqueSeleccionado = "TARDE"),
-                    selectedColor: Colors.orange[200],
-                  ),
-                  const SizedBox(width: 10),
-                  ChoiceChip(
-                    label: const Text("🌙 Noche"), 
-                    selected: bloqueSeleccionado == "NOCHE", 
-                    onSelected: (s) => setState(() => bloqueSeleccionado = "NOCHE"),
-                    selectedColor: Colors.orange[200],
-                  ),
+                  _choiceChipHorario("☀️ Tarde", "TARDE"),
+                  const SizedBox(width: 15),
+                  _choiceChipHorario("🌙 Noche", "NOCHE"),
                 ],
               ),
-              const SizedBox(height: 10),
-              TextField(controller: notasCtrl, decoration: const InputDecoration(labelText: "Notas / Observaciones")),
-              const SizedBox(height: 35),
+
+              const SizedBox(height: 25),
+              _buildTextField(notasCtrl, "Notas / Observaciones", Icons.edit_note, maxLines: 2),
+              
+              const SizedBox(height: 30),
+              // RESUMEN DE PRECIO
+              if (tamanoSeleccionado != null)
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.blueGrey[800],
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("TOTAL A COBRAR:", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      Text("\$${_getPrecioFinal().toInt()}", 
+                        style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+
+              const SizedBox(height: 30),
               ElevatedButton(
                 onPressed: _guardarPedido,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange, 
+                  backgroundColor: azulPastelOscuro, 
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))
                 ),
-                child: Text(isEdit ? "GUARDAR CAMBIOS" : "CONFIRMAR PEDIDO", style: const TextStyle(fontSize: 16)),
-              )
+                child: Text(isEdit ? "GUARDAR CAMBIOS" : "CONFIRMAR PEDIDO", 
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(height: 20),
             ],
           ),
     );
   }
 
-  // Widget pequeño para los botones de categoría
+  Widget _buildDropdownContainer(Widget child) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 15),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: azulPastelPrincipal),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blueGrey[800]));
+  }
+
+  Widget _buildTextField(TextEditingController controller, String label, IconData icon, {TextInputType keyboardType = TextInputType.text, int maxLines = 1}) {
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      maxLines: maxLines,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: azulPastelOscuro),
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: azulPastelPrincipal.withOpacity(0.5))),
+      ),
+    );
+  }
+
+  Widget _choiceChipHorario(String label, String value) {
+    bool selected = bloqueSeleccionado == value;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (s) => setState(() => bloqueSeleccionado = value),
+      selectedColor: azulPastelPrincipal,
+    );
+  }
+
   Widget _filtroChip(String label, IconData icono) {
     bool seleccionada = categoriaSeleccionada == label;
     return ChoiceChip(
-      avatar: Icon(icono, size: 18, color: seleccionada ? Colors.white : Colors.orange),
+      avatar: Icon(icono, size: 18),
       label: Text(label),
       selected: seleccionada,
-      onSelected: (bool selected) {
-        if (selected) _filtrarProductos(label);
-      },
-      selectedColor: Colors.orange,
-      labelStyle: TextStyle(color: seleccionada ? Colors.white : Colors.black),
+      onSelected: (bool s) { if (s) _filtrarProductos(label); },
+      selectedColor: azulPastelPrincipal,
     );
   }
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:image_picker/image_picker.dart'; // Para la cámara
-import 'package:http_parser/http_parser.dart'; // Para el tipo de imagen
+import 'package:image_picker/image_picker.dart'; 
+import 'package:http_parser/http_parser.dart'; 
 import 'dart:io';
 import 'dart:convert';
 
@@ -16,21 +16,27 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
   final nombreCtrl = TextEditingController();
   final descCtrl = TextEditingController();
   
-  // Variables para la imagen
   File? _imagen;
   final ImagePicker _picker = ImagePicker();
+
+  // Colores Pastel personalizados
+  final Color azulPastelFondo = const Color(0xFFF0F8FF); 
+  final Color azulPastelPrincipal = const Color(0xFFB3E5FC); 
+  final Color azulPastelOscuro = const Color(0xFF81D4FA); 
 
   String categoriaSeleccionada = "Torta";
   final List<String> categorias = ["Torta", "Tarta", "Pastelito"];
 
+  // Controla si la torta acepta Merengue o Crema
+  bool coberturaVariada = false;
+
   List<Map<String, dynamic>> tamanos = [];
   bool guardando = false;
 
-  // Función para capturar foto con la cámara
   Future<void> _tomarFoto() async {
     final XFile? foto = await _picker.pickImage(
       source: ImageSource.camera,
-      imageQuality: 50, // Reduce el peso para que suba más rápido
+      imageQuality: 50,
     );
 
     if (foto != null) {
@@ -53,9 +59,9 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
   }
 
   Future<void> guardarTorta() async {
-    if (nombreCtrl.text.isEmpty || _imagen == null) {
+    if (nombreCtrl.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Por favor, ponle nombre y una foto")),
+        const SnackBar(content: Text("Por favor, ingresa al menos el nombre del producto")),
       );
       return;
     }
@@ -63,27 +69,26 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
     setState(() => guardando = true);
 
     try {
-      final url = Uri.parse('http://192.168.1.86:8080/api/tortas');
-      
-      // CAMBIO IMPORTANTE: Usamos MultipartRequest para enviar el archivo
+      final url = Uri.parse('https://pasteleria-backend-production-24fc.up.railway.app/api/tortas');
       var request = http.MultipartRequest('POST', url);
 
-      // Campos de texto (Coinciden con @RequestParam en Java)
       request.fields['nombre'] = nombreCtrl.text;
       request.fields['descripcion'] = descCtrl.text;
       request.fields['categoria'] = categoriaSeleccionada;
-      
-      // Los tamaños deben ir como JSON string porque Multipart solo envía Strings o Files
       request.fields['tamanosJson'] = json.encode(tamanos);
+      
+      // Enviamos el valor del Switch al backend
+      request.fields['coberturaVariada'] = coberturaVariada.toString();
 
-      // Adjuntar la foto
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'file', // Debe coincidir con @RequestParam("file") en Java
-          _imagen!.path,
-          contentType: MediaType('image', 'jpeg'),
-        ),
-      );
+      if (_imagen != null) {
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            'file', 
+            _imagen!.path,
+            contentType: MediaType('image', 'jpeg'),
+          ),
+        );
+      }
 
       var streamedResponse = await request.send();
       var response = await http.Response.fromStream(streamedResponse);
@@ -92,6 +97,11 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
         if (mounted) Navigator.pop(context, true);
       } else {
         debugPrint("Error del servidor: ${response.body}");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Error al guardar: ${response.statusCode}")),
+          );
+        }
       }
     } catch (e) {
       debugPrint("Error al guardar: $e");
@@ -103,15 +113,22 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Nuevo Producto 🎂")),
+      backgroundColor: azulPastelFondo,
+      appBar: AppBar(
+        title: const Text("Nuevo Producto 🎂", style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: azulPastelPrincipal,
+        foregroundColor: Colors.blueGrey[800],
+        elevation: 0,
+      ),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Text("Selecciona el Tipo de Producto:", 
-            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+          Text("Selecciona el Tipo de Producto:", 
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey[700])),
           DropdownButton<String>(
             value: categoriaSeleccionada,
             isExpanded: true,
+            dropdownColor: azulPastelFondo,
             items: categorias.map((String value) {
               return DropdownMenuItem<String>(
                 value: value,
@@ -121,105 +138,151 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
             onChanged: (newValue) {
               setState(() {
                 categoriaSeleccionada = newValue!;
+                if (categoriaSeleccionada != "Torta") coberturaVariada = false;
               });
             },
           ),
           const SizedBox(height: 20),
           
-          TextField(controller: nombreCtrl, decoration: const InputDecoration(labelText: "Nombre")),
-          const SizedBox(height: 10),
-          TextField(controller: descCtrl, decoration: const InputDecoration(labelText: "Descripción")),
-          const SizedBox(height: 20),
-
-          // --- SECCIÓN DE LA FOTO ---
-          const Text("Foto del Producto:", style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          GestureDetector(
-            onTap: _tomarFoto,
-            child: Container(
-              height: 180,
-              decoration: BoxDecoration(
-                color: Colors.grey[200],
-                borderRadius: BorderRadius.circular(15),
-                border: Border.all(color: Colors.orange.withOpacity(0.5)),
-              ),
-              child: _imagen == null
-                  ? const Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.camera_alt, size: 50, color: Colors.orange),
-                        Text("Toca para tomar foto", style: TextStyle(color: Colors.orange)),
-                      ],
-                    )
-                  : ClipRRect(
-                      borderRadius: BorderRadius.circular(15),
-                      child: Image.file(_imagen!, fit: BoxFit.cover),
-                    ),
-            ),
+          TextField(
+            controller: nombreCtrl, 
+            decoration: _inputStyle("Nombre del producto"),
           ),
-          // --------------------------
+          const SizedBox(height: 15),
+          TextField(
+            controller: descCtrl, 
+            maxLines: 2,
+            decoration: _inputStyle("Descripción"),
+          ),
+          
+          // --- WIDGET: REGLA DE COBERTURA (Solo para Tortas) ---
+          if (categoriaSeleccionada == "Torta") ...[
+            const SizedBox(height: 15),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5)],
+              ),
+              child: SwitchListTile(
+                title: const Text("Doble Cobertura", style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text("Permite elegir entre Merengue o Crema Chantilly"),
+                value: coberturaVariada,
+                activeColor: azulPastelOscuro,
+                onChanged: (bool value) {
+                  setState(() => coberturaVariada = value);
+                },
+                secondary: Icon(Icons.layers_outlined, color: azulPastelOscuro),
+              ),
+            ),
+          ],
 
+          const SizedBox(height: 20),
+          Text("Foto del Producto (Opcional):", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey[700])),
+          const SizedBox(height: 10),
+          _buildFotoArea(),
+          
           const SizedBox(height: 30),
           Text(
-            categoriaSeleccionada == "Pastelito" 
-              ? "💰 Precios por Cantidad" 
-              : "📏 Tamaños y Precios", 
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+            categoriaSeleccionada == "Pastelito" ? "💰 Precios por Cantidad" : "📏 Tamaños y Precios", 
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey[800])
           ),
           const Divider(),
 
-          ...tamanos.asMap().entries.map((entry) {
-            int index = entry.key;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: TextField(
-                      decoration: InputDecoration(
-                        labelText: categoriaSeleccionada == "Pastelito" 
-                          ? "Ej: Docena, Unidad..." 
-                          : "Capacidad (Ej: 15 pers)"
-                      ),
-                      onChanged: (val) => tamanos[index]["capacidad"] = val,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    flex: 1,
-                    child: TextField(
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: "Precio (\$)"),
-                      onChanged: (val) => tamanos[index]["precio"] = double.tryParse(val) ?? 0.0,
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => quitarTamano(index),
-                  )
-                ],
-              ),
-            );
-          }),
+          // Lista dinámica de tamaños
+          ...tamanos.asMap().entries.map((entry) => _buildTamanoItem(entry.key)),
 
           TextButton.icon(
             onPressed: agregarCampoTamano,
-            icon: const Icon(Icons.add),
-            label: Text(categoriaSeleccionada == "Pastelito" ? "Agregar Variedad" : "Agregar Tamaño"),
+            icon: Icon(Icons.add_circle_outline, color: azulPastelOscuro),
+            label: Text(
+              categoriaSeleccionada == "Pastelito" ? "Agregar Variedad" : "Agregar Tamaño",
+              style: TextStyle(color: azulPastelOscuro, fontWeight: FontWeight.bold),
+            ),
           ),
 
           const SizedBox(height: 40),
           ElevatedButton(
             onPressed: guardando ? null : guardarTorta,
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 15)
+              backgroundColor: azulPastelPrincipal,
+              foregroundColor: Colors.blueGrey[800],
+              padding: const EdgeInsets.symmetric(vertical: 18),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
             ),
             child: guardando 
-              ? const CircularProgressIndicator(color: Colors.white) 
-              : Text("GUARDAR $categoriaSeleccionada".toUpperCase()),
+              ? CircularProgressIndicator(color: azulPastelOscuro) 
+              : const Text("GUARDAR EN CATÁLOGO", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(height: 30),
+        ],
+      ),
+    );
+  }
+
+  // --- MÉTODOS DE AYUDA PARA DISEÑO ---
+
+  InputDecoration _inputStyle(String label) {
+    return InputDecoration(
+      labelText: label,
+      filled: true,
+      fillColor: Colors.white,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+      focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: azulPastelPrincipal, width: 2), borderRadius: BorderRadius.circular(10)),
+    );
+  }
+
+  Widget _buildFotoArea() {
+    return GestureDetector(
+      onTap: _tomarFoto,
+      child: Container(
+        height: 200,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: azulPastelPrincipal),
+        ),
+        child: _imagen == null
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.camera_alt, size: 60, color: azulPastelOscuro),
+                  Text("Toca para abrir la cámara", style: TextStyle(color: azulPastelOscuro)),
+                ],
+              )
+            : ClipRRect(
+                borderRadius: BorderRadius.circular(15),
+                child: Image.file(_imagen!, fit: BoxFit.cover, width: double.infinity),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildTamanoItem(int index) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 1, 
+            child: TextField(
+              keyboardType: TextInputType.number,
+              decoration: _inputStyle(categoriaSeleccionada == "Pastelito" ? "Cant." : "Cap."),
+              onChanged: (val) => tamanos[index]["capacidad"] = val,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            flex: 2, 
+            child: TextField(
+              keyboardType: TextInputType.number,
+              decoration: _inputStyle("Precio \$"),
+              onChanged: (val) => tamanos[index]["precio"] = double.tryParse(val) ?? 0.0,
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete, color: Colors.redAccent),
+            onPressed: () => quitarTamano(index),
           )
         ],
       ),
