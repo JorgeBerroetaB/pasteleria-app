@@ -129,6 +129,7 @@ class _ListaTortasState extends State<ListaTortas> {
           elevation: 4,
           child: const Icon(Icons.add, color: Colors.white, size: 30),
           onPressed: () async {
+            // Al volver de agregar, si el resultado es true, refrescamos la lista
             final resultado = await Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const AgregarTortaScreen()),
@@ -153,18 +154,31 @@ class _ListaTortasState extends State<ListaTortas> {
     );
   }
 
-  // Widget para mostrar cuando NO hay imagen o hay error
+  // --- MEJORA: Lógica de obtención de precio más inteligente ---
+  String _obtenerPrecioTexto(dynamic torta) {
+    if (torta['tamanos'] == null || (torta['tamanos'] as List).isEmpty) {
+      return "Consultar";
+    }
+    
+    List tamanos = torta['tamanos'];
+    // Ordenar por precio para mostrar siempre el más bajo como "Desde"
+    tamanos.sort((a, b) => (a['precio'] ?? 0).compareTo(b['precio'] ?? 0));
+    
+    double precioMasBajo = tamanos[0]['precio'].toDouble();
+    
+    if (tamanos.length > 1) {
+      return "Desde \$${precioMasBajo.toStringAsFixed(0)}";
+    } else {
+      return "\$${precioMasBajo.toStringAsFixed(0)}";
+    }
+  }
+
   Widget _buildPlaceholderImage(String categoria) {
     IconData iconData;
     switch (categoria.toLowerCase()) {
-      case 'tarta':
-        iconData = Icons.pie_chart_outline;
-        break;
-      case 'pastelito':
-        iconData = Icons.cookie_outlined;
-        break;
-      default:
-        iconData = Icons.cake_outlined;
+      case 'tarta': iconData = Icons.pie_chart_outline; break;
+      case 'pastelito': iconData = Icons.cookie_outlined; break;
+      default: iconData = Icons.cake_outlined;
     }
 
     return Container(
@@ -206,10 +220,7 @@ class _ListaTortasState extends State<ListaTortas> {
       itemCount: listaFiltrada.length,
       itemBuilder: (context, i) {
         final torta = listaFiltrada[i];
-        final precio = (torta['tamanos'] != null && (torta['tamanos'] as List).isNotEmpty)
-            ? "\$${torta['tamanos'][0]['precio']}"
-            : "Consultar";
-
+        final String precioTexto = _obtenerPrecioTexto(torta);
         final String? urlImagen = torta['imagenUrl'];
 
         return Container(
@@ -240,7 +251,6 @@ class _ListaTortasState extends State<ListaTortas> {
                 children: [
                   Stack(
                     children: [
-                      // Lógica de Imagen mejorada
                       (urlImagen != null && urlImagen.isNotEmpty)
                       ? Image.network(
                           urlImagen, 
@@ -251,18 +261,23 @@ class _ListaTortasState extends State<ListaTortas> {
                         )
                       : _buildPlaceholderImage(categoria),
                       
+                      // Badge de Precio mejorado
                       Positioned(
                         top: 12,
                         right: 12,
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.9),
+                            color: azulPastelOscuro.withOpacity(0.9),
                             borderRadius: BorderRadius.circular(15),
                           ),
                           child: Text(
-                            precio,
-                            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey[800]),
+                            precioTexto,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold, 
+                              color: Colors.white,
+                              fontSize: 13
+                            ),
                           ),
                         ),
                       ),
@@ -273,9 +288,19 @@ class _ListaTortasState extends State<ListaTortas> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          torta['nombre'] ?? "Sin nombre",
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blueGrey[800]),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                torta['nombre'] ?? "Sin nombre",
+                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blueGrey[800]),
+                              ),
+                            ),
+                            // Pequeño indicador si tiene coberturas extras
+                            if (torta['coberturas'] != null && (torta['coberturas'] as List).isNotEmpty)
+                              Icon(Icons.stars, color: Colors.orangeAccent, size: 20),
+                          ],
                         ),
                         const SizedBox(height: 6),
                         Text(
