@@ -3,9 +3,11 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+// --- IMPORTACIONES DE TUS PANTALLAS ---
 import 'agregar_torta.dart';
 import 'detalle_torta.dart';
 import 'calendario_screen.dart';
+import 'gestion_coberturas_screen.dart'; // <-- NUEVA IMPORTACIÓN
 
 void main() => runApp(const MyApp());
 
@@ -100,6 +102,18 @@ class _ListaTortasState extends State<ListaTortas> {
             style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey[800])),
           backgroundColor: azulPastelPrincipal,
           actions: [
+            // --- NUEVO BOTÓN: GESTIÓN DE COBERTURAS ---
+            IconButton(
+              icon: Icon(Icons.palette_outlined, color: Colors.blueGrey[800]),
+              tooltip: "Gestionar Coberturas",
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const GestionCoberturasScreen()),
+                );
+              },
+            ),
+            // --- BOTÓN EXISTENTE: CALENDARIO ---
             IconButton(
               icon: Icon(Icons.calendar_month_outlined, color: Colors.blueGrey[800]),
               tooltip: "Calendario de Pedidos",
@@ -154,7 +168,7 @@ class _ListaTortasState extends State<ListaTortas> {
     );
   }
 
-  // --- MEJORA: Lógica de obtención de precio más inteligente ---
+  // --- Lógica de obtención de precio más inteligente ---
   String _obtenerPrecioTexto(dynamic torta) {
     if (torta['tamanos'] == null || (torta['tamanos'] as List).isEmpty) {
       return "Consultar";
@@ -299,7 +313,7 @@ class _ListaTortasState extends State<ListaTortas> {
                             ),
                             // Pequeño indicador si tiene coberturas extras
                             if (torta['coberturas'] != null && (torta['coberturas'] as List).isNotEmpty)
-                              Icon(Icons.stars, color: Colors.orangeAccent, size: 20),
+                              const Icon(Icons.stars, color: Colors.orangeAccent, size: 20),
                           ],
                         ),
                         const SizedBox(height: 6),

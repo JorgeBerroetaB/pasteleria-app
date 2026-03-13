@@ -26,10 +26,40 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
   String categoriaSeleccionada = "Torta";
   final List<String> categorias = ["Torta", "Tarta", "Pastelito"];
 
-  // --- NUEVA ESTRUCTURA ESCALABLE ---
+  // --- ESTRUCTURA ESCALABLE ---
   List<Map<String, dynamic>> tamanos = [];
-  List<Map<String, dynamic>> coberturas = []; 
   bool guardando = false;
+
+  // --- VARIABLES PARA EL CATÁLOGO GLOBAL ---
+  List<dynamic> catalogoCoberturas = []; 
+  List<int> coberturasSeleccionadasIds = [];
+  bool cargandoCoberturas = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarCatalogoCoberturas();
+  }
+
+  // Descarga las coberturas disponibles desde el backend
+  Future<void> _cargarCatalogoCoberturas() async {
+    try {
+      final res = await http.get(Uri.parse('https://pasteleria-backend-production-24fc.up.railway.app/api/coberturas'));
+      if (res.statusCode == 200) {
+        if(mounted) {
+           setState(() {
+            catalogoCoberturas = json.decode(res.body);
+            cargandoCoberturas = false;
+          });
+        }
+      } else {
+        if(mounted) setState(() => cargandoCoberturas = false);
+      }
+    } catch (e) {
+      debugPrint("Error cargando catálogo: $e");
+      if(mounted) setState(() => cargandoCoberturas = false);
+    }
+  }
 
   Future<void> _tomarFoto() async {
     final XFile? foto = await _picker.pickImage(
@@ -56,30 +86,17 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
     });
   }
 
-  // --- FUNCIÓN PARA AGREGAR COBERTURA DINÁMICA ---
-  void agregarCobertura() {
-    setState(() {
-      coberturas.add({
-        "nombre": "",
-        // Creamos una lista de precios adicionales basada en los tamaños actuales
-        "precios": tamanos.map((t) => {
-          "capacidad": t["capacidad"], 
-          "precioAdicional": 0.0
-        }).toList()
-      });
-    });
-  }
-
-  void quitarCobertura(int index) {
-    setState(() {
-      coberturas.removeAt(index);
-    });
-  }
-
   Future<void> guardarTorta() async {
     if (nombreCtrl.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Por favor, ingresa al menos el nombre del producto")),
+        const SnackBar(content: Text("Por favor, ingresa el nombre")),
+      );
+      return;
+    }
+
+    if (tamanos.isEmpty) {
+       ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Agrega al menos un tamaño o cantidad con su precio.")),
       );
       return;
     }
@@ -90,13 +107,20 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
       final url = Uri.parse('https://pasteleria-backend-production-24fc.up.railway.app/api/tortas');
       var request = http.MultipartRequest('POST', url);
 
+      // Datos básicos
       request.fields['nombre'] = nombreCtrl.text;
       request.fields['descripcion'] = descCtrl.text;
       request.fields['categoria'] = categoriaSeleccionada;
+      
+      // Enviamos los tamaños como JSON String
       request.fields['tamanosJson'] = json.encode(tamanos);
       
-      // --- ENVIAR EL NUEVO JSON DE COBERTURAS ---
-      request.fields['coberturasJson'] = json.encode(coberturas);
+      // Enviamos los IDs como JSON String solo si es Torta
+      if (categoriaSeleccionada == "Torta") {
+         request.fields['coberturasIds'] = json.encode(coberturasSeleccionadasIds);
+      } else {
+         request.fields['coberturasIds'] = "[]";
+      }
 
       if (_imagen != null) {
         request.files.add(
@@ -112,19 +136,27 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
       var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        if (mounted) Navigator.pop(context, true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("¡Producto guardado!")));
+          Navigator.pop(context, true);
+        }
       } else {
         debugPrint("Error del servidor: ${response.body}");
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Error al guardar: ${response.statusCode}")),
+            SnackBar(content: Text("Error al guardar. Verifica los datos.")),
           );
         }
       }
     } catch (e) {
       debugPrint("Error al guardar: $e");
+       if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Error de conexión al guardar el producto.")),
+          );
+        }
     } finally {
-      setState(() => guardando = false);
+      if (mounted) setState(() => guardando = false);
     }
   }
 
@@ -141,77 +173,189 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          Text("Selecciona el Tipo de Producto:", 
-            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey[700])),
-          DropdownButton<String>(
-            value: categoriaSeleccionada,
-            isExpanded: true,
-            dropdownColor: azulPastelFondo,
-            items: categorias.map((String value) {
-              return DropdownMenuItem<String>(
-                value: value,
-                child: Text(value),
-              );
-            }).toList(),
-            onChanged: (newValue) {
-              setState(() {
-                categoriaSeleccionada = newValue!;
-                if (categoriaSeleccionada != "Torta") coberturas.clear();
-              });
-            },
+          // --- TARJETA DE INFORMACIÓN BÁSICA ---
+          Card(
+            color: Colors.white,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+              side: BorderSide(color: azulPastelPrincipal.withOpacity(0.5)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(15),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Tipo de Producto", 
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey[700])),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: azulPastelFondo,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: azulPastelPrincipal.withOpacity(0.5)),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: categoriaSeleccionada,
+                        isExpanded: true,
+                        dropdownColor: Colors.white,
+                        icon: Icon(Icons.keyboard_arrow_down, color: azulPastelOscuro),
+                        items: categorias.map((String value) {
+                          return DropdownMenuItem<String>(
+                            value: value,
+                            child: Text(value, style: TextStyle(color: Colors.blueGrey[800])),
+                          );
+                        }).toList(),
+                        onChanged: (newValue) {
+                          setState(() {
+                            categoriaSeleccionada = newValue!;
+                            if (categoriaSeleccionada != "Torta") coberturasSeleccionadasIds.clear();
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+                  TextField(
+                    controller: nombreCtrl, 
+                    decoration: _inputStyle("Nombre del producto"),
+                  ),
+                  const SizedBox(height: 15),
+                  TextField(
+                    controller: descCtrl, 
+                    maxLines: 3,
+                    decoration: _inputStyle("Descripción"),
+                  ),
+                ],
+              ),
+            ),
           ),
+          
           const SizedBox(height: 20),
           
-          TextField(
-            controller: nombreCtrl, 
-            decoration: _inputStyle("Nombre del producto"),
-          ),
-          const SizedBox(height: 15),
-          TextField(
-            controller: descCtrl, 
-            maxLines: 2,
-            decoration: _inputStyle("Descripción"),
-          ),
-          
-          const SizedBox(height: 20),
-          Text("Foto del Producto (Opcional):", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey[700])),
+          // --- SECCIÓN DE FOTO ---
+          Text("Foto del Producto (Opcional)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey[700])),
           const SizedBox(height: 10),
           _buildFotoArea(),
           
-          const SizedBox(height: 30),
-          Text(
-            categoriaSeleccionada == "Pastelito" ? "💰 Precios por Cantidad" : "📏 Tamaños y Precios", 
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey[800])
-          ),
-          const Divider(),
+          const SizedBox(height: 20),
 
-          ...tamanos.asMap().entries.map((entry) => _buildTamanoItem(entry.key)),
+          // --- SECCIÓN DE PRECIOS Y TAMAÑOS ---
+          Card(
+            color: Colors.white,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+              side: BorderSide(color: azulPastelPrincipal.withOpacity(0.5)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(15),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(categoriaSeleccionada == "Pastelito" ? Icons.cookie : Icons.straighten, 
+                           color: azulPastelOscuro),
+                      const SizedBox(width: 8),
+                      Text(
+                        categoriaSeleccionada == "Pastelito" ? "Precios por Cantidad" : "Tamaños y Precios", 
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueGrey[800])
+                      ),
+                    ],
+                  ),
+                  const Divider(),
+                  const SizedBox(height: 10),
 
-          TextButton.icon(
-            onPressed: agregarCampoTamano,
-            icon: Icon(Icons.add_circle_outline, color: azulPastelOscuro),
-            label: Text(
-              categoriaSeleccionada == "Pastelito" ? "Agregar Variedad" : "Agregar Tamaño",
-              style: TextStyle(color: azulPastelOscuro, fontWeight: FontWeight.bold),
+                  if (tamanos.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Text("Agrega al menos un precio para este producto.", 
+                        style: TextStyle(color: Colors.blueGrey[300], fontStyle: FontStyle.italic)),
+                    ),
+
+                  ...tamanos.asMap().entries.map((entry) => _buildTamanoItem(entry.key)),
+
+                  Center(
+                    child: TextButton.icon(
+                      onPressed: agregarCampoTamano,
+                      icon: Icon(Icons.add_circle_outline, color: azulPastelOscuro),
+                      label: Text(
+                        categoriaSeleccionada == "Pastelito" ? "Agregar Variedad" : "Agregar Tamaño",
+                        style: TextStyle(color: azulPastelOscuro, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
 
-          // --- SECCIÓN NUEVA: COBERTURAS DINÁMICAS ---
+          // --- SECCIÓN DE COBERTURAS (SOLO TORTAS) ---
           if (categoriaSeleccionada == "Torta") ...[
-            const SizedBox(height: 30),
-            Text("✨ Coberturas Adicionales", 
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey[800])),
-            const Text("Define nombres como 'Crema Chantilly' y sus costos extra.", 
-              style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const Divider(),
-            
-            ...coberturas.asMap().entries.map((entry) => _buildCoberturaItem(entry.key)),
-
-            TextButton.icon(
-              onPressed: agregarCobertura,
-              icon: Icon(Icons.layers, color: Colors.orangeAccent),
-              label: const Text("Agregar Cobertura Extra", 
-                style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            Card(
+              color: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(15),
+                side: BorderSide(color: azulPastelPrincipal.withOpacity(0.5)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(15),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.palette, color: azulPastelOscuro),
+                        const SizedBox(width: 8),
+                        Text("Coberturas Adicionales", 
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueGrey[800])),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    const Text("Marca las coberturas disponibles para esta torta.", 
+                      style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    const Divider(),
+                    
+                    cargandoCoberturas 
+                      ? Center(child: Padding(padding: const EdgeInsets.all(20.0), child: CircularProgressIndicator(color: azulPastelOscuro)))
+                      : catalogoCoberturas.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.all(8.0),
+                            child: Text("No hay coberturas creadas. Créalas primero en la Administración.", 
+                              style: TextStyle(color: Colors.redAccent, fontStyle: FontStyle.italic)),
+                          )
+                        : Wrap(
+                            spacing: 8.0,
+                            runSpacing: 4.0,
+                            children: catalogoCoberturas.map((cob) {
+                              final isSelected = coberturasSeleccionadasIds.contains(cob['id']);
+                              return FilterChip(
+                                label: Text(cob['nombre']),
+                                selected: isSelected,
+                                selectedColor: azulPastelPrincipal,
+                                checkmarkColor: Colors.blueGrey[800],
+                                backgroundColor: azulPastelFondo,
+                                side: BorderSide(color: isSelected ? azulPastelOscuro : azulPastelPrincipal.withOpacity(0.5)),
+                                onSelected: (bool seleccionado) {
+                                  setState(() {
+                                    if (seleccionado) {
+                                      coberturasSeleccionadasIds.add(cob['id']);
+                                    } else {
+                                      coberturasSeleccionadasIds.remove(cob['id']);
+                                    }
+                                  });
+                                },
+                              );
+                            }).toList(),
+                          ),
+                  ],
+                ),
+              ),
             ),
           ],
 
@@ -219,14 +363,15 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
           ElevatedButton(
             onPressed: guardando ? null : guardarTorta,
             style: ElevatedButton.styleFrom(
-              backgroundColor: azulPastelPrincipal,
-              foregroundColor: Colors.blueGrey[800],
+              backgroundColor: azulPastelOscuro, // Cambié el botón a un color más fuerte para destacarlo
+              foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 18),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              elevation: 2,
             ),
             child: guardando 
-              ? CircularProgressIndicator(color: azulPastelOscuro) 
-              : const Text("GUARDAR EN CATÁLOGO", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
+              : const Text("GUARDAR PRODUCTO", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ),
           const SizedBox(height: 30),
         ],
@@ -234,81 +379,14 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
     );
   }
 
-  // --- WIDGET PARA CADA COBERTURA ---
-  Widget _buildCoberturaItem(int index) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 15),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    decoration: _inputStyle("Nombre Cobertura (Ej: Merengue)"),
-                    onChanged: (val) => coberturas[index]["nombre"] = val,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                  onPressed: () => quitarCobertura(index),
-                )
-              ],
-            ),
-            const SizedBox(height: 10),
-            const Text("Precios adicionales por capacidad:", 
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-            
-            // Generamos un input de precio para cada tamaño definido arriba
-            ...tamanos.map((t) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text("Para ${t['capacidad'] != "" ? t['capacidad'] : '?'} pág:"),
-                    SizedBox(
-                      width: 100,
-                      child: TextField(
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          hintText: "Precio +",
-                          isDense: true,
-                          prefixText: "\$ ",
-                        ),
-                        onChanged: (val) {
-                          // Buscamos el objeto de precio correspondiente a esta capacidad
-                          var listaPrecios = (coberturas[index]["precios"] as List);
-                          var precioObj = listaPrecios.firstWhere(
-                            (p) => p["capacidad"] == t["capacidad"],
-                            orElse: () => null
-                          );
-                          if (precioObj != null) {
-                            precioObj["precioAdicional"] = double.tryParse(val) ?? 0.0;
-                          }
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // --- MÉTODOS DE AYUDA PARA DISEÑO ---
   InputDecoration _inputStyle(String label) {
     return InputDecoration(
       labelText: label,
+      labelStyle: TextStyle(color: Colors.blueGrey[400]),
       filled: true,
-      fillColor: Colors.white,
+      fillColor: azulPastelFondo.withOpacity(0.5),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+      enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: azulPastelPrincipal.withOpacity(0.5)), borderRadius: BorderRadius.circular(10)),
       focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: azulPastelPrincipal, width: 2), borderRadius: BorderRadius.circular(10)),
     );
   }
@@ -321,19 +399,36 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: azulPastelPrincipal),
+          border: Border.all(color: azulPastelPrincipal.withOpacity(0.8), width: 2),
         ),
         child: _imagen == null
             ? Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.camera_alt, size: 60, color: azulPastelOscuro),
-                  Text("Toca para abrir la cámara", style: TextStyle(color: azulPastelOscuro)),
+                  Icon(Icons.add_a_photo_outlined, size: 60, color: azulPastelOscuro),
+                  const SizedBox(height: 8),
+                  const Text("Toca para abrir la cámara", style: TextStyle(color: Colors.blueGrey, fontWeight: FontWeight.w500)),
                 ],
               )
-            : ClipRRect(
-                borderRadius: BorderRadius.circular(15),
-                child: Image.file(_imagen!, fit: BoxFit.cover, width: double.infinity),
+            : Stack(
+                fit: StackFit.expand,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(13), // Ligeramente menor que el contenedor para encajar
+                    child: Image.file(_imagen!, fit: BoxFit.cover),
+                  ),
+                  Positioned(
+                    bottom: 10,
+                    right: 10,
+                    child: CircleAvatar(
+                      backgroundColor: Colors.black54,
+                      child: IconButton(
+                        icon: const Icon(Icons.edit, color: Colors.white, size: 20),
+                        onPressed: _tomarFoto,
+                      ),
+                    ),
+                  )
+                ],
               ),
       ),
     );
@@ -341,28 +436,21 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
 
   Widget _buildTamanoItem(int index) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            flex: 1, 
+            flex: 3, 
             child: TextField(
-              keyboardType: TextInputType.number,
-              decoration: _inputStyle(categoriaSeleccionada == "Pastelito" ? "Cant." : "Cap."),
-              onChanged: (val) {
-                setState(() {
-                   tamanos[index]["capacidad"] = val;
-                   // Al cambiar la capacidad arriba, debemos actualizarla en las coberturas abajo
-                   for (var cob in coberturas) {
-                     (cob["precios"] as List)[index]["capacidad"] = val;
-                   }
-                });
-              },
+              keyboardType: TextInputType.text, // Cambiado a text por si ponen "15 porciones"
+              decoration: _inputStyle(categoriaSeleccionada == "Pastelito" ? "Ej: Docena" : "Ej: 15 pax"),
+              onChanged: (val) => tamanos[index]["capacidad"] = val,
             ),
           ),
           const SizedBox(width: 10),
           Expanded(
-            flex: 2, 
+            flex: 3, 
             child: TextField(
               keyboardType: TextInputType.number,
               decoration: _inputStyle("Precio \$"),
@@ -370,7 +458,7 @@ class _AgregarTortaScreenState extends State<AgregarTortaScreen> {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.delete, color: Colors.redAccent),
+            icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
             onPressed: () => quitarTamano(index),
           )
         ],

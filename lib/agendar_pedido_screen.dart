@@ -33,8 +33,9 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
   Map<String, dynamic>? tamanoSeleccionado;
   String bloqueSeleccionado = "TARDE";
   
-  // NUEVAS VARIABLES PARA COBERTURA
-  String coberturaSeleccionada = "Merengue";
+  // --- VARIABLE DINÁMICA PARA COBERTURA ---
+  Map<String, dynamic>? coberturaSeleccionada;
+
   final Map<String, int> recargosChantilly = {
     "10": 1500, "15": 3000, "20": 4500, "30": 6000, "40": 8000, "50": 10000
   };
@@ -53,7 +54,9 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
     if (tamanoSeleccionado == null) return 0.0;
     double precioBase = double.tryParse(tamanoSeleccionado!['precio'].toString()) ?? 0.0;
     
-    if (coberturaSeleccionada == "Crema") {
+    // Validamos si la cobertura seleccionada incluye "Crema" en su nombre para aplicar el recargo
+    if (coberturaSeleccionada != null && 
+        coberturaSeleccionada!['nombre'].toString().toLowerCase().contains("crema")) {
       String cap = tamanoSeleccionado!['capacidad'].toString().replaceAll(RegExp(r'[^0-9]'), '');
       int extra = recargosChantilly[cap] ?? 0;
       return precioBase + extra;
@@ -74,6 +77,7 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
       }).toList();
       tortaSeleccionada = null;
       tamanoSeleccionado = null;
+      coberturaSeleccionada = null;
     });
   }
 
@@ -104,6 +108,11 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
                 (tam) => tam['capacidad'].toString().replaceAll(RegExp(r'[^0-9]'), '') == numeroBd,
                 orElse: () => null,
               );
+
+              // Intentar rescatar la cobertura si hay múltiples disponibles
+              if (tortaSeleccionada!['coberturas'] != null && tortaSeleccionada!['coberturas'].isNotEmpty) {
+                 coberturaSeleccionada = tortaSeleccionada!['coberturas'][0];
+              }
             }
           }
           _filtrarProductos(categoriaSeleccionada);
@@ -130,10 +139,14 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
 
     final detalleLimpio = tamanoSeleccionado!['capacidad'].toString().replaceAll(RegExp(r'[^0-9]'), '');
     
-    // Si es crema, lo agregamos a las notas para que tú lo veas en la agenda
+    // Dejar registro visual de la cobertura en las notas
     String notasFinales = notasCtrl.text;
-    if (coberturaSeleccionada == "Crema") {
-      notasFinales = "[COBERTURA CREMA CHANTILLY] $notasFinales";
+    if (coberturaSeleccionada != null) {
+      String nombreCob = coberturaSeleccionada!['nombre'].toString().toUpperCase();
+      // Solo agregamos la nota si no está ya incluida (por si es edición)
+      if (!notasFinales.contains("[COBERTURA")) {
+        notasFinales = "[COBERTURA $nombreCob]\n$notasFinales";
+      }
     }
 
     final datosPedido = {
@@ -145,7 +158,7 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
       "torta": {"id": tortaSeleccionada!['id']},
       "detalleTamano": detalleLimpio,
       "precioFinal": _getPrecioFinal(),
-      "notas": notasFinales
+      "notas": notasFinales.trim()
     };
 
     try {
@@ -164,8 +177,11 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.pedidoParaEditar != null;
-    final bool permiteDobleCobertura = tortaSeleccionada != null && 
-        (tortaSeleccionada!['coberturaVariada'] == true || tortaSeleccionada!['coberturaVariada'] == "true");
+    
+    // Verificamos si el producto seleccionado tiene coberturas configuradas
+    final List<dynamic> coberturasDisponibles = tortaSeleccionada != null && tortaSeleccionada!['coberturas'] != null 
+        ? tortaSeleccionada!['coberturas'] 
+        : [];
 
     return Scaffold(
       backgroundColor: azulPastelFondo,
@@ -209,7 +225,18 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
                   items: productosFiltrados.map((t) => DropdownMenuItem<Map<String, dynamic>>(
                     value: t, child: Text(t['nombre'])
                   )).toList(),
-                  onChanged: (val) => setState(() { tortaSeleccionada = val; tamanoSeleccionado = null; }),
+                  onChanged: (val) {
+                    setState(() { 
+                      tortaSeleccionada = val; 
+                      tamanoSeleccionado = null; 
+                      // Autoseleccionamos la primera cobertura por defecto si tiene
+                      if (val != null && val['coberturas'] != null && val['coberturas'].isNotEmpty) {
+                        coberturaSeleccionada = val['coberturas'][0];
+                      } else {
+                        coberturaSeleccionada = null;
+                      }
+                    });
+                  },
                 ),
               ),
 
@@ -235,27 +262,23 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
                 ),
               ],
 
-              // --- SECCIÓN NUEVA: SELECTOR DE COBERTURA EN AGENDA ---
-              if (permiteDobleCobertura && tamanoSeleccionado != null) ...[
+              // --- SECCIÓN ACTUALIZADA: SELECTOR DINÁMICO DE COBERTURA ---
+              if (coberturasDisponibles.isNotEmpty && tamanoSeleccionado != null) ...[
                 const SizedBox(height: 25),
                 _buildSectionTitle("4. Tipo de Cobertura"),
                 const SizedBox(height: 10),
-                Row(
-                  children: [
-                    ChoiceChip(
-                      label: const Text("Merengue"),
-                      selected: coberturaSeleccionada == "Merengue",
-                      onSelected: (s) => setState(() => coberturaSeleccionada = "Merengue"),
+                Wrap(
+                  spacing: 15,
+                  runSpacing: 10,
+                  children: coberturasDisponibles.map((cob) {
+                    bool isSelected = coberturaSeleccionada != null && coberturaSeleccionada!['id'] == cob['id'];
+                    return ChoiceChip(
+                      label: Text(cob['nombre']),
+                      selected: isSelected,
+                      onSelected: (s) => setState(() => coberturaSeleccionada = cob),
                       selectedColor: azulPastelPrincipal,
-                    ),
-                    const SizedBox(width: 15),
-                    ChoiceChip(
-                      label: const Text("Crema Chantilly"),
-                      selected: coberturaSeleccionada == "Crema",
-                      onSelected: (s) => setState(() => coberturaSeleccionada = "Crema"),
-                      selectedColor: Colors.orange[100],
-                    ),
-                  ],
+                    );
+                  }).toList(),
                 ),
               ],
 
@@ -274,7 +297,6 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
               _buildTextField(notasCtrl, "Notas / Observaciones", Icons.edit_note, maxLines: 2),
               
               const SizedBox(height: 30),
-              // RESUMEN DE PRECIO
               if (tamanoSeleccionado != null)
                 Container(
                   padding: const EdgeInsets.all(20),
