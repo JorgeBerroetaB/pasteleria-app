@@ -25,7 +25,6 @@ class _GestionCoberturasScreenState extends State<GestionCoberturasScreen> {
     _cargarCoberturas();
   }
 
-  // --- OBTENER TODAS LAS COBERTURAS ---
   Future<void> _cargarCoberturas() async {
     setState(() => cargando = true);
     try {
@@ -48,21 +47,21 @@ class _GestionCoberturasScreenState extends State<GestionCoberturasScreen> {
     }
   }
 
-  // --- CREAR O EDITAR COBERTURA ---
-  Future<void> _guardarCobertura(String nombre, {int? id}) async {
-    final body = json.encode({"nombre": nombre});
+  Future<void> _guardarCobertura(String nombre, List<Map<String, dynamic>> precios, {int? id}) async {
+    final body = json.encode({
+      "nombre": nombre,
+      "precios": precios 
+    });
     
     try {
       http.Response res;
       if (id == null) {
-        // Crear
         res = await http.post(
           Uri.parse('$_baseUrl/coberturas'),
           headers: {"Content-Type": "application/json"},
           body: body,
         );
       } else {
-        // Editar
         res = await http.put(
           Uri.parse('$_baseUrl/coberturas/$id'),
           headers: {"Content-Type": "application/json"},
@@ -72,9 +71,10 @@ class _GestionCoberturasScreenState extends State<GestionCoberturasScreen> {
 
       if (res.statusCode == 200 || res.statusCode == 201) {
         _mostrarMensaje(id == null ? "Cobertura creada" : "Cobertura actualizada");
-        _cargarCoberturas(); // Recargar la lista
+        _cargarCoberturas();
       } else {
-        _mostrarMensaje("Error al guardar la cobertura");
+        _mostrarMensaje("Error al guardar. Verifica los datos.");
+        debugPrint("Error del server: ${res.body}");
       }
     } catch (e) {
       debugPrint("Error: $e");
@@ -82,7 +82,6 @@ class _GestionCoberturasScreenState extends State<GestionCoberturasScreen> {
     }
   }
 
-  // --- ELIMINAR COBERTURA ---
   Future<void> _eliminarCobertura(int id) async {
     try {
       final res = await http.delete(Uri.parse('$_baseUrl/coberturas/$id'));
@@ -90,7 +89,7 @@ class _GestionCoberturasScreenState extends State<GestionCoberturasScreen> {
         _mostrarMensaje("Cobertura eliminada");
         _cargarCoberturas();
       } else {
-        _mostrarMensaje("No se pudo eliminar (Puede estar en uso por un producto)");
+        _mostrarMensaje("No se pudo eliminar (Puede estar en uso)");
       }
     } catch (e) {
       debugPrint("Error: $e");
@@ -98,61 +97,149 @@ class _GestionCoberturasScreenState extends State<GestionCoberturasScreen> {
     }
   }
 
-  // --- DIÁLOGO FORMULARIO ---
   void _mostrarFormulario({Map<String, dynamic>? coberturaActual}) {
     final TextEditingController nombreCtrl = TextEditingController(
       text: coberturaActual != null ? coberturaActual['nombre'] : ""
     );
 
+    final TextEditingController capacidadCtrl = TextEditingController();
+    final TextEditingController precioCtrl = TextEditingController();
+
+    List<Map<String, dynamic>> precios = [];
+    if (coberturaActual != null && coberturaActual['precios'] != null) {
+      precios = List<Map<String, dynamic>>.from(coberturaActual['precios']);
+    }
+
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          backgroundColor: azulPastelFondo,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          title: Text(
-            coberturaActual == null ? "Nueva Cobertura" : "Editar Cobertura",
-            style: TextStyle(color: Colors.blueGrey[800], fontWeight: FontWeight.bold),
-          ),
-          content: TextField(
-            controller: nombreCtrl,
-            decoration: InputDecoration(
-              labelText: "Nombre de la cobertura",
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: azulPastelPrincipal.withOpacity(0.5))),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("CANCELAR", style: TextStyle(color: Colors.grey)),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (nombreCtrl.text.trim().isNotEmpty) {
-                  Navigator.pop(context);
-                  _guardarCobertura(
-                    nombreCtrl.text.trim(), 
-                    id: coberturaActual?['id']
-                  );
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: azulPastelOscuro,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              backgroundColor: azulPastelFondo,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              title: Text(
+                coberturaActual == null ? "Nueva Cobertura" : "Editar Cobertura",
+                style: TextStyle(color: Colors.blueGrey[800], fontWeight: FontWeight.bold),
               ),
-              child: const Text("GUARDAR"),
-            ),
-          ],
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nombreCtrl,
+                      decoration: InputDecoration(
+                        labelText: "Nombre (Ej: Crema Chantilly)",
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: azulPastelPrincipal.withOpacity(0.5))),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    
+                    Text("Precios Adicionales", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey[700])),
+                    const Divider(),
+                    
+                    ...precios.map((p) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: Text("${p['capacidad']} pax"),
+                      subtitle: Text("\$${p['precioAdicional'] ?? 0}"),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
+                        onPressed: () {
+                          setStateDialog(() {
+                            precios.remove(p);
+                          });
+                        },
+                      ),
+                    )),
+
+                    const SizedBox(height: 10),
+                    
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: TextField(
+                            controller: capacidadCtrl,
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              labelText: "Pax (Ej: 15)",
+                              filled: true,
+                              fillColor: Colors.white,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          flex: 3,
+                          child: TextField(
+                            controller: precioCtrl,
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              labelText: "Precio \$",
+                              filled: true,
+                              fillColor: Colors.white,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add_circle, color: Colors.green, size: 30),
+                          onPressed: () {
+                            if (capacidadCtrl.text.isNotEmpty && precioCtrl.text.isNotEmpty) {
+                              setStateDialog(() {
+                                precios.add({
+                                  "capacidad": int.tryParse(capacidadCtrl.text.trim()) ?? 0,
+                                  "precioAdicional": double.tryParse(precioCtrl.text.trim()) ?? 0.0
+                                });
+                                capacidadCtrl.clear();
+                                precioCtrl.clear();
+                              });
+                            }
+                          },
+                        )
+                      ],
+                    )
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("CANCELAR", style: TextStyle(color: Colors.grey)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (nombreCtrl.text.trim().isNotEmpty) {
+                      Navigator.pop(context);
+                      _guardarCobertura(
+                        nombreCtrl.text.trim(), 
+                        precios, 
+                        id: coberturaActual?['id']
+                      );
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: azulPastelOscuro,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: const Text("GUARDAR"),
+                ),
+              ],
+            );
+          }
         );
       }
     );
   }
 
-  // --- DIÁLOGO DE CONFIRMACIÓN PARA ELIMINAR ---
   void _confirmarEliminacion(int id, String nombre) {
     showDialog(
       context: context,
@@ -218,7 +305,9 @@ class _GestionCoberturasScreenState extends State<GestionCoberturasScreen> {
                         side: BorderSide(color: azulPastelPrincipal.withOpacity(0.5)),
                       ),
                       margin: const EdgeInsets.only(bottom: 10),
+                      // --- AHORA TODA LA CARTA SE PUEDE PRESIONAR PARA EDITAR ---
                       child: ListTile(
+                        onTap: () => _mostrarFormulario(coberturaActual: cob),
                         leading: CircleAvatar(
                           backgroundColor: azulPastelFondo,
                           child: Icon(Icons.palette_outlined, color: azulPastelOscuro),
@@ -227,18 +316,10 @@ class _GestionCoberturasScreenState extends State<GestionCoberturasScreen> {
                           cob['nombre'], 
                           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey[800])
                         ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.edit_outlined, color: Colors.blue),
-                              onPressed: () => _mostrarFormulario(coberturaActual: cob),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                              onPressed: () => _confirmarEliminacion(cob['id'], cob['nombre']),
-                            ),
-                          ],
+                        // --- SOLO QUEDA EL BOTÓN DE BORRAR A LA DERECHA ---
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                          onPressed: () => _confirmarEliminacion(cob['id'], cob['nombre']),
                         ),
                       ),
                     );

@@ -53,7 +53,7 @@ class _DetalleTortaScreenState extends State<DetalleTortaScreen> {
     }
   }
 
-  // --- LÓGICA DE CÁLCULO ACTUALIZADA ---
+  // --- LÓGICA DE CÁLCULO CORREGIDA ---
   double obtenerPrecioExtra(dynamic capacidad) {
     if (coberturaSeleccionada == null) return 0.0;
     
@@ -66,8 +66,8 @@ class _DetalleTortaScreenState extends State<DetalleTortaScreen> {
     );
     
     if (precioExtraObj != null) {
-      // Usamos 'precioExtra' que es como lo definimos en el Backend
-      return double.tryParse(precioExtraObj['precioExtra'].toString()) ?? 0.0;
+      // ¡CORRECCIÓN CLAVE! Tu backend usa 'precioAdicional', no 'precio'
+      return double.tryParse(precioExtraObj['precioAdicional'].toString()) ?? 0.0;
     }
     return 0.0;
   }
@@ -146,10 +146,10 @@ class _DetalleTortaScreenState extends State<DetalleTortaScreen> {
                       ChoiceChip(
                         label: const Text("Base / Merengue"),
                         selected: coberturaSeleccionada == null,
+                        showCheckmark: false, // <-- ¡Fija el tamaño!
                         onSelected: (val) => setState(() => coberturaSeleccionada = null),
                         selectedColor: azulPastelPrincipal,
                         backgroundColor: Colors.white,
-                        checkmarkColor: Colors.blueGrey[800],
                         side: BorderSide(color: coberturaSeleccionada == null ? azulPastelOscuro : azulPastelPrincipal.withOpacity(0.5)),
                       ),
                       ...coberturas.map((cob) {
@@ -157,9 +157,9 @@ class _DetalleTortaScreenState extends State<DetalleTortaScreen> {
                         return ChoiceChip(
                           label: Text(cob['nombre']),
                           selected: isSelected,
+                          showCheckmark: false, // <-- ¡Fija el tamaño!
                           selectedColor: azulPastelPrincipal,
                           backgroundColor: Colors.white,
-                          checkmarkColor: Colors.blueGrey[800],
                           side: BorderSide(color: isSelected ? azulPastelOscuro : azulPastelPrincipal.withOpacity(0.5)),
                           onSelected: (val) => setState(() => coberturaSeleccionada = (val ? cob : null)),
                         );
@@ -193,10 +193,10 @@ class _DetalleTortaScreenState extends State<DetalleTortaScreen> {
                     ),
                     child: ListTile(
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      // ¡CORRECCIÓN AQUÍ! Ahora solo mostramos la capacidad tal cual la escribió el usuario
                       title: Text("${t['capacidad']}", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey[800])),
                       subtitle: extra > 0 
-                        ? Text("Base: \$$base + Extra: \$$extra", style: TextStyle(fontSize: 12, color: Colors.blueGrey[500]))
+                        // Usamos .toInt() para que se vea más limpio el desglose
+                        ? Text("Base: \$${base.toInt()} + Extra: \$${extra.toInt()}", style: TextStyle(fontSize: 12, color: Colors.blueGrey[500]))
                         : Text("Precio estándar", style: TextStyle(fontSize: 12, color: Colors.blueGrey[400])),
                       trailing: Text(
                         "\$${total.toStringAsFixed(0)}", 
@@ -204,7 +204,7 @@ class _DetalleTortaScreenState extends State<DetalleTortaScreen> {
                       ),
                     ),
                   );
-                }).toList(),
+                }).toList(), // Solucionado el warning de .toList() en el map
               ],
             ),
           ),

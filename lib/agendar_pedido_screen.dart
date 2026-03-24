@@ -20,6 +20,7 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
   final nombreClienteCtrl = TextEditingController();
   final telefonoCtrl = TextEditingController();
   final notasCtrl = TextEditingController();
+  final abonoCtrl = TextEditingController(); // Nuevo controlador para el abono
 
   final Color azulPastelFondo = const Color(0xFFF0F8FF); 
   final Color azulPastelPrincipal = const Color(0xFFB3E5FC); 
@@ -31,14 +32,10 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
 
   Map<String, dynamic>? tortaSeleccionada;
   Map<String, dynamic>? tamanoSeleccionado;
-  String bloqueSeleccionado = "TARDE";
+  String bloqueSeleccionado = "MAÑANA"; 
   
   // --- VARIABLE DINÁMICA PARA COBERTURA ---
   Map<String, dynamic>? coberturaSeleccionada;
-
-  final Map<String, int> recargosChantilly = {
-    "10": 1500, "15": 3000, "20": 4500, "30": 6000, "40": 8000, "50": 10000
-  };
 
   bool cargando = true;
   final String _baseUrl = "https://pasteleria-backend-production-24fc.up.railway.app/api";
@@ -49,19 +46,23 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
     _cargarDatosIniciales();
   }
 
-  // CALCULO DINÁMICO DE PRECIO
   double _getPrecioFinal() {
     if (tamanoSeleccionado == null) return 0.0;
     double precioBase = double.tryParse(tamanoSeleccionado!['precio'].toString()) ?? 0.0;
     
-    // Validamos si la cobertura seleccionada incluye "Crema" en su nombre para aplicar el recargo
-    if (coberturaSeleccionada != null && 
-        coberturaSeleccionada!['nombre'].toString().toLowerCase().contains("crema")) {
-      String cap = tamanoSeleccionado!['capacidad'].toString().replaceAll(RegExp(r'[^0-9]'), '');
-      int extra = recargosChantilly[cap] ?? 0;
-      return precioBase + extra;
+    double precioExtra = 0.0;
+    if (coberturaSeleccionada != null && coberturaSeleccionada!['precios'] != null) {
+      List precios = coberturaSeleccionada!['precios'];
+      var coincidencia = precios.firstWhere(
+        (p) => p['capacidad'].toString() == tamanoSeleccionado!['capacidad'].toString(),
+        orElse: () => null,
+      );
+      if (coincidencia != null) {
+        precioExtra = double.tryParse(coincidencia['precioAdicional'].toString()) ?? 0.0;
+      }
     }
-    return precioBase;
+    
+    return precioBase + precioExtra;
   }
 
   String _obtenerSufijo(String nombre) {
@@ -93,8 +94,13 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
             nombreClienteCtrl.text = p['nombreCliente'] ?? "";
             telefonoCtrl.text = p['telefono'] ?? "";
             notasCtrl.text = p['notas'] ?? "";
-            bloqueSeleccionado = p['bloqueHorario'] ?? "TARDE";
+            bloqueSeleccionado = p['bloqueHorario'] ?? "MAÑANA"; 
             
+            // Cargar abono si existe en la edición
+            if (p['abono'] != null) {
+              abonoCtrl.text = p['abono'].toString();
+            }
+
             tortaSeleccionada = todosLosProductos.firstWhere(
               (t) => t['id'] == p['torta']['id'],
               orElse: () => null,
@@ -109,7 +115,6 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
                 orElse: () => null,
               );
 
-              // Intentar rescatar la cobertura si hay múltiples disponibles
               if (tortaSeleccionada!['coberturas'] != null && tortaSeleccionada!['coberturas'].isNotEmpty) {
                  coberturaSeleccionada = tortaSeleccionada!['coberturas'][0];
               }
@@ -139,11 +144,21 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
 
     final detalleLimpio = tamanoSeleccionado!['capacidad'].toString().replaceAll(RegExp(r'[^0-9]'), '');
     
-    // Dejar registro visual de la cobertura en las notas
+    // Cálculos para guardar
+    double total = _getPrecioFinal();
+    double abono = double.tryParse(abonoCtrl.text) ?? 0.0;
+    double faltaPagar = total - abono;
+
     String notasFinales = notasCtrl.text;
+    
+    // Dejar registro visual de la cobertura y montos en las notas
+    String registroFinanzas = "[ABONO: \$${abono.toInt()} | FALTA: \$${faltaPagar.toInt()}]";
+    if (!notasFinales.contains("ABONO:")) {
+       notasFinales = "$registroFinanzas\n$notasFinales";
+    }
+
     if (coberturaSeleccionada != null) {
       String nombreCob = coberturaSeleccionada!['nombre'].toString().toUpperCase();
-      // Solo agregamos la nota si no está ya incluida (por si es edición)
       if (!notasFinales.contains("[COBERTURA")) {
         notasFinales = "[COBERTURA $nombreCob]\n$notasFinales";
       }
@@ -157,7 +172,9 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
       "estado": isEdit ? widget.pedidoParaEditar!['estado'] : "PENDIENTE",
       "torta": {"id": tortaSeleccionada!['id']},
       "detalleTamano": detalleLimpio,
-      "precioFinal": _getPrecioFinal(),
+      "precioFinal": total,
+      "abono": abono, // Enviamos el abono por si el backend lo recibe
+      "saldoPendiente": faltaPagar, // Enviamos lo que falta por si el backend lo recibe
       "notas": notasFinales.trim()
     };
 
@@ -178,7 +195,6 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
   Widget build(BuildContext context) {
     final isEdit = widget.pedidoParaEditar != null;
     
-    // Verificamos si el producto seleccionado tiene coberturas configuradas
     final List<dynamic> coberturasDisponibles = tortaSeleccionada != null && tortaSeleccionada!['coberturas'] != null 
         ? tortaSeleccionada!['coberturas'] 
         : [];
@@ -229,12 +245,7 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
                     setState(() { 
                       tortaSeleccionada = val; 
                       tamanoSeleccionado = null; 
-                      // Autoseleccionamos la primera cobertura por defecto si tiene
-                      if (val != null && val['coberturas'] != null && val['coberturas'].isNotEmpty) {
-                        coberturaSeleccionada = val['coberturas'][0];
-                      } else {
-                        coberturaSeleccionada = null;
-                      }
+                      coberturaSeleccionada = null; 
                     });
                   },
                 ),
@@ -262,7 +273,6 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
                 ),
               ],
 
-              // --- SECCIÓN ACTUALIZADA: SELECTOR DINÁMICO DE COBERTURA ---
               if (coberturasDisponibles.isNotEmpty && tamanoSeleccionado != null) ...[
                 const SizedBox(height: 25),
                 _buildSectionTitle("4. Tipo de Cobertura"),
@@ -270,15 +280,23 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
                 Wrap(
                   spacing: 15,
                   runSpacing: 10,
-                  children: coberturasDisponibles.map((cob) {
-                    bool isSelected = coberturaSeleccionada != null && coberturaSeleccionada!['id'] == cob['id'];
-                    return ChoiceChip(
-                      label: Text(cob['nombre']),
-                      selected: isSelected,
-                      onSelected: (s) => setState(() => coberturaSeleccionada = cob),
+                  children: [
+                    ChoiceChip(
+                      label: const Text("Base / Normal"),
+                      selected: coberturaSeleccionada == null,
+                      onSelected: (s) => setState(() => coberturaSeleccionada = null),
                       selectedColor: azulPastelPrincipal,
-                    );
-                  }).toList(),
+                    ),
+                    ...coberturasDisponibles.map((cob) {
+                      bool isSelected = coberturaSeleccionada != null && coberturaSeleccionada!['id'] == cob['id'];
+                      return ChoiceChip(
+                        label: Text(cob['nombre']),
+                        selected: isSelected,
+                        onSelected: (s) => setState(() => coberturaSeleccionada = s ? cob : null),
+                        selectedColor: azulPastelPrincipal,
+                      );
+                    }).toList(),
+                  ],
                 ),
               ],
 
@@ -287,32 +305,77 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  _choiceChipHorario("☀️ Tarde", "TARDE"),
+                  _choiceChipHorario("🌅 Mañana", "MAÑANA"), 
                   const SizedBox(width: 15),
-                  _choiceChipHorario("🌙 Noche", "NOCHE"),
+                  _choiceChipHorario("☀️ Tarde", "TARDE"),
                 ],
               ),
 
+              const SizedBox(height: 30),
+              _buildSectionTitle("6. Abono / Pago Anticipado"),
+              const SizedBox(height: 10),
+              _buildTextField(
+                abonoCtrl, 
+                "Monto abonado (Dejar vacío si no hay)", 
+                Icons.payments_outlined, 
+                keyboardType: TextInputType.number,
+                onChanged: (val) {
+                  // Actualizamos la pantalla para que el cálculo de "Falta Pagar" sea en vivo
+                  setState(() {});
+                }
+              ),
+
               const SizedBox(height: 25),
-              _buildTextField(notasCtrl, "Notas / Observaciones", Icons.edit_note, maxLines: 2),
+              _buildTextField(notasCtrl, "Notas u observaciones", Icons.edit_note, maxLines: 2),
               
               const SizedBox(height: 30),
-              if (tamanoSeleccionado != null)
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.blueGrey[800],
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text("TOTAL A COBRAR:", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                      Text("\$${_getPrecioFinal().toInt()}", 
-                        style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
+              if (tamanoSeleccionado != null) ...[
+                // --- CÁLCULOS PARA EL CONTENEDOR VISUAL ---
+                Builder(
+                  builder: (context) {
+                    double totalFinal = _getPrecioFinal();
+                    double abonoIngresado = double.tryParse(abonoCtrl.text) ?? 0.0;
+                    double loQueFalta = totalFinal - abonoIngresado;
+
+                    return Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.blueGrey[800],
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text("TOTAL:", style: TextStyle(color: Colors.white70, fontSize: 16)),
+                              Text("\$${totalFinal.toInt()}", style: const TextStyle(color: Colors.white70, fontSize: 16)),
+                            ],
+                          ),
+                          const SizedBox(height: 5),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text("ABONO:", style: TextStyle(color: Colors.greenAccent, fontSize: 16)),
+                              Text("- \$${abonoIngresado.toInt()}", style: const TextStyle(color: Colors.greenAccent, fontSize: 16)),
+                            ],
+                          ),
+                          const Divider(color: Colors.white24, height: 20, thickness: 1),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text("FALTA PAGAR:", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+                              Text("\$${loQueFalta.toInt()}", 
+                                style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  }
                 ),
+              ],
 
               const SizedBox(height: 30),
               ElevatedButton(
@@ -348,11 +411,13 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
     return Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blueGrey[800]));
   }
 
-  Widget _buildTextField(TextEditingController controller, String label, IconData icon, {TextInputType keyboardType = TextInputType.text, int maxLines = 1}) {
+  // Se agregó "onChanged" a los parámetros de esta función
+  Widget _buildTextField(TextEditingController controller, String label, IconData icon, {TextInputType keyboardType = TextInputType.text, int maxLines = 1, void Function(String)? onChanged}) {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
       maxLines: maxLines,
+      onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon, color: azulPastelOscuro),
