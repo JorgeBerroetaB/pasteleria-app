@@ -2,24 +2,27 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Importación necesaria para limpiar datos
 
 // --- IMPORTACIONES DE TUS PANTALLAS ---
 import 'agregar_torta.dart';
 import 'detalle_torta.dart';
 import 'calendario_screen.dart';
 import 'gestion_coberturas_screen.dart'; 
+import 'login_screen.dart'; 
 
 void main() => runApp(const MyApp());
+
+// Definición de colores para mantener consistencia en toda la app
+const Color azulPastelFondo = Color(0xFFF0F8FF);
+const Color azulPastelPrincipal = Color(0xFFB3E5FC);
+const Color azulPastelOscuro = Color(0xFF81D4FA);
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    const Color azulPastelFondo = Color(0xFFF0F8FF);
-    const Color azulPastelPrincipal = Color(0xFFB3E5FC);
-    const Color azulPastelOscuro = Color(0xFF81D4FA);
-
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Pastelería Dulce Día',
@@ -41,7 +44,12 @@ class MyApp extends StatelessWidget {
           centerTitle: true,
         ),
       ),
-      home: const ListaTortas(),
+      // --- CONFIGURACIÓN DE RUTAS ---
+      initialRoute: '/login',
+      routes: {
+        '/login': (context) => LoginScreen(),
+        '/home': (context) => const ListaTortas(),
+      },
     );
   }
 }
@@ -56,9 +64,7 @@ class _ListaTortasState extends State<ListaTortas> {
   List datos = [];
   bool cargando = true;
 
-  final Color azulPastelPrincipal = const Color(0xFFB3E5FC);
-  final Color azulPastelOscuro = const Color(0xFF81D4FA);
-
+  // URL de tu API en Railway
   final String _urlApi = 'https://pasteleria-backend-production-24fc.up.railway.app/api/tortas';
 
   @override
@@ -86,6 +92,36 @@ class _ListaTortasState extends State<ListaTortas> {
     }
   }
 
+  // --- LÓGICA DE CERRAR SESIÓN ---
+  void _mostrarAlertaCerrarSesion(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Cerrar Sesión"),
+        content: const Text("¿Estás seguro de que quieres salir del sistema?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancelar"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.clear(); // Borra usuario y nombre guardado
+              
+              // Regresa al login y elimina el historial de navegación
+              if (mounted) {
+                Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+              }
+            },
+            child: const Text("Salir", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   List filtrarDatos(String categoria) {
     return datos.where((t) {
       return (t['categoria']?.toString().toLowerCase() ?? "") == categoria.toLowerCase();
@@ -98,7 +134,6 @@ class _ListaTortasState extends State<ListaTortas> {
       length: 3,
       child: Scaffold(
         appBar: AppBar(
-          // --- ÍCONO DE COBERTURAS A LA IZQUIERDA ---
           leading: IconButton(
             icon: Icon(Icons.palette_outlined, color: Colors.blueGrey[800]),
             tooltip: "Gestionar Coberturas",
@@ -113,7 +148,7 @@ class _ListaTortasState extends State<ListaTortas> {
             style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey[800], fontSize: 18)),
           backgroundColor: azulPastelPrincipal,
           actions: [
-            // --- ÍCONO DEL CALENDARIO A LA DERECHA ---
+            // Botón de Calendario
             IconButton(
               icon: Icon(Icons.calendar_month_outlined, color: Colors.blueGrey[800]),
               tooltip: "Calendario de Pedidos",
@@ -123,6 +158,12 @@ class _ListaTortasState extends State<ListaTortas> {
                   MaterialPageRoute(builder: (context) => const CalendarioScreen()),
                 );
               },
+            ),
+            // NUEVO: Botón de Cerrar Sesión
+            IconButton(
+              icon: const Icon(Icons.logout, color: Colors.redAccent),
+              tooltip: "Cerrar Sesión",
+              onPressed: () => _mostrarAlertaCerrarSesion(context),
             ),
           ],
           bottom: TabBar(
@@ -151,7 +192,7 @@ class _ListaTortasState extends State<ListaTortas> {
           },
         ),
         body: cargando 
-            ? Center(child: CircularProgressIndicator(color: azulPastelOscuro)) 
+            ? const Center(child: CircularProgressIndicator(color: azulPastelOscuro)) 
             : RefreshIndicator(
                 color: azulPastelOscuro,
                 onRefresh: cargarTortas,
@@ -166,6 +207,8 @@ class _ListaTortasState extends State<ListaTortas> {
       ),
     );
   }
+
+  // --- MÉTODOS DE APOYO PARA LA INTERFAZ ---
 
   String _obtenerPrecioTexto(dynamic torta) {
     if (torta['tamanos'] == null || (torta['tamanos'] as List).isEmpty) {
@@ -213,7 +256,7 @@ class _ListaTortasState extends State<ListaTortas> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.search_off_outlined, size: 80, color: azulPastelPrincipal),
+              const Icon(Icons.search_off_outlined, size: 80, color: azulPastelPrincipal),
               const SizedBox(height: 15),
               Text("No hay ${categoria}s aún", 
                 style: TextStyle(color: Colors.blueGrey[300], fontSize: 18, fontWeight: FontWeight.w500)),
@@ -231,9 +274,8 @@ class _ListaTortasState extends State<ListaTortas> {
         final String precioTexto = _obtenerPrecioTexto(torta);
         final String? urlImagen = torta['imagenUrl'];
 
-        // --- TARJETAS MÁS PEQUEÑAS TIPO LISTA ---
         return Container(
-          height: 110, // Altura fija reducida para ver más ítems
+          height: 110,
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
             color: Colors.white,
@@ -258,7 +300,6 @@ class _ListaTortasState extends State<ListaTortas> {
               },
               child: Row(
                 children: [
-                  // Imagen a la izquierda más pequeña
                   SizedBox(
                     width: 110,
                     height: 110,
@@ -270,7 +311,6 @@ class _ListaTortasState extends State<ListaTortas> {
                           )
                         : _buildPlaceholderImage(categoria),
                   ),
-                  // Contenido a la derecha
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.all(12),
@@ -303,7 +343,6 @@ class _ListaTortasState extends State<ListaTortas> {
                             overflow: TextOverflow.ellipsis,
                           ),
                           const Spacer(),
-                          // Badge de precio
                           Text(
                             precioTexto,
                             style: TextStyle(
