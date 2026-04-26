@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // Importación necesaria para limpiar datos
+import 'package:shared_preferences/shared_preferences.dart';
 
 // --- IMPORTACIONES DE TUS PANTALLAS ---
 import 'agregar_torta.dart';
@@ -10,10 +10,11 @@ import 'detalle_torta.dart';
 import 'calendario_screen.dart';
 import 'gestion_coberturas_screen.dart'; 
 import 'login_screen.dart'; 
+import 'registro_empleado_screen.dart';
+import 'perfil_screen.dart';
 
 void main() => runApp(const MyApp());
 
-// Definición de colores para mantener consistencia en toda la app
 const Color azulPastelFondo = Color(0xFFF0F8FF);
 const Color azulPastelPrincipal = Color(0xFFB3E5FC);
 const Color azulPastelOscuro = Color(0xFF81D4FA);
@@ -44,7 +45,6 @@ class MyApp extends StatelessWidget {
           centerTitle: true,
         ),
       ),
-      // --- CONFIGURACIÓN DE RUTAS ---
       initialRoute: '/login',
       routes: {
         '/login': (context) => LoginScreen(),
@@ -63,14 +63,25 @@ class ListaTortas extends StatefulWidget {
 class _ListaTortasState extends State<ListaTortas> {
   List datos = [];
   bool cargando = true;
+  String nombreUsuario = "Cargando...";
+  String rolUsuario = "USER";
 
-  // URL de tu API en Railway
   final String _urlApi = 'https://pasteleria-backend-production-24fc.up.railway.app/api/tortas';
 
   @override
   void initState() {
     super.initState();
+    _cargarInfoUsuario();
     cargarTortas();
+  }
+
+  Future<void> _cargarInfoUsuario() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      // Leemos el nombre completo que guardamos en el Login
+      nombreUsuario = prefs.getString('nombreCompleto') ?? "Empleado";
+      rolUsuario = prefs.getString('rol') ?? "USER";
+    });
   }
 
   Future<void> cargarTortas() async {
@@ -92,7 +103,6 @@ class _ListaTortasState extends State<ListaTortas> {
     }
   }
 
-  // --- LÓGICA DE CERRAR SESIÓN ---
   void _mostrarAlertaCerrarSesion(BuildContext context) {
     showDialog(
       context: context,
@@ -108,9 +118,7 @@ class _ListaTortasState extends State<ListaTortas> {
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () async {
               final prefs = await SharedPreferences.getInstance();
-              await prefs.clear(); // Borra usuario y nombre guardado
-              
-              // Regresa al login y elimina el historial de navegación
+              await prefs.clear(); 
               if (mounted) {
                 Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
               }
@@ -134,36 +142,16 @@ class _ListaTortasState extends State<ListaTortas> {
       length: 3,
       child: Scaffold(
         appBar: AppBar(
-          leading: IconButton(
-            icon: Icon(Icons.palette_outlined, color: Colors.blueGrey[800]),
-            tooltip: "Gestionar Coberturas",
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const GestionCoberturasScreen()),
-              );
-            },
-          ),
           title: Text("Pastelería Dulce Día", 
             style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey[800], fontSize: 18)),
           backgroundColor: azulPastelPrincipal,
           actions: [
-            // Botón de Calendario
             IconButton(
               icon: Icon(Icons.calendar_month_outlined, color: Colors.blueGrey[800]),
               tooltip: "Calendario de Pedidos",
               onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const CalendarioScreen()),
-                );
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const CalendarioScreen()));
               },
-            ),
-            // NUEVO: Botón de Cerrar Sesión
-            IconButton(
-              icon: const Icon(Icons.logout, color: Colors.redAccent),
-              tooltip: "Cerrar Sesión",
-              onPressed: () => _mostrarAlertaCerrarSesion(context),
             ),
           ],
           bottom: TabBar(
@@ -179,6 +167,77 @@ class _ListaTortasState extends State<ListaTortas> {
             ],
           ),
         ),
+
+        drawer: Drawer(
+          child: Column(
+            children: [
+              UserAccountsDrawerHeader(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [azulPastelPrincipal, azulPastelOscuro],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+                // AQUÍ SE MUESTRA EL NOMBRE DEL USUARIO LOGUEADO
+                accountName: Text(
+                  nombreUsuario, 
+                  style: const TextStyle(color: Color(0xFF37474F), fontWeight: FontWeight.bold, fontSize: 18)
+                ),
+                // AQUÍ SE MUESTRA EL ROL
+                accountEmail: Text(
+                  "Rol: $rolUsuario", 
+                  style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w500)
+                ),
+                currentAccountPicture: const CircleAvatar(
+                  backgroundColor: Colors.white,
+                  child: Icon(Icons.person_rounded, size: 45, color: azulPastelOscuro),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.manage_accounts_outlined, color: Colors.blueGrey),
+                title: const Text("Mi Perfil"),
+                subtitle: const Text("Cambiar contraseña y datos"),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await Navigator.push(context, MaterialPageRoute(builder: (context) => const PerfilScreen()));
+                  _cargarInfoUsuario(); // Recargamos por si cambió el nombre en el perfil
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.palette_outlined, color: Colors.blueGrey),
+                title: const Text("Gestionar Coberturas"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const GestionCoberturasScreen()));
+                },
+              ),
+              
+              if (rolUsuario == "ADMIN") 
+                ListTile(
+                  leading: const Icon(Icons.person_add_alt_1_outlined, color: Colors.blueAccent),
+                  title: const Text("Registrar Empleado"),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => RegistroEmpleadoScreen()));
+                  },
+                ),
+
+              const Spacer(),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.logout, color: Colors.redAccent),
+                title: const Text("Cerrar Sesión"),
+                onTap: () {
+                  Navigator.pop(context);
+                  _mostrarAlertaCerrarSesion(context);
+                },
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+
         floatingActionButton: FloatingActionButton(
           backgroundColor: azulPastelOscuro,
           elevation: 4,
@@ -208,20 +267,14 @@ class _ListaTortasState extends State<ListaTortas> {
     );
   }
 
-  // --- MÉTODOS DE APOYO PARA LA INTERFAZ ---
+  // --- MÉTODOS DE APOYO (Mantener igual que antes) ---
 
   String _obtenerPrecioTexto(dynamic torta) {
-    if (torta['tamanos'] == null || (torta['tamanos'] as List).isEmpty) {
-      return "Consultar";
-    }
+    if (torta['tamanos'] == null || (torta['tamanos'] as List).isEmpty) return "Consultar";
     List tamanos = torta['tamanos'];
     tamanos.sort((a, b) => (a['precio'] ?? 0).compareTo(b['precio'] ?? 0));
     double precioMasBajo = tamanos[0]['precio'].toDouble();
-    if (tamanos.length > 1) {
-      return "Desde \$${precioMasBajo.toStringAsFixed(0)}";
-    } else {
-      return "\$${precioMasBajo.toStringAsFixed(0)}";
-    }
+    return tamanos.length > 1 ? "Desde \$${precioMasBajo.toStringAsFixed(0)}" : "\$${precioMasBajo.toStringAsFixed(0)}";
   }
 
   Widget _buildPlaceholderImage(String categoria) {
@@ -231,24 +284,18 @@ class _ListaTortasState extends State<ListaTortas> {
       case 'pastelito': iconData = Icons.cookie_outlined; break;
       default: iconData = Icons.cake_outlined;
     }
-
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
           colors: [azulPastelPrincipal.withOpacity(0.4), azulPastelOscuro.withOpacity(0.2)],
         ),
       ),
-      child: Center(
-        child: Icon(iconData, size: 40, color: azulPastelOscuro.withOpacity(0.8)),
-      ),
+      child: Center(child: Icon(iconData, size: 40, color: azulPastelOscuro.withOpacity(0.8))),
     );
   }
 
   Widget _buildListaFiltrada(String categoria) {
     final listaFiltrada = filtrarDatos(categoria);
-
     if (listaFiltrada.isEmpty) {
       return Center(
         child: SingleChildScrollView(
@@ -271,22 +318,13 @@ class _ListaTortasState extends State<ListaTortas> {
       itemCount: listaFiltrada.length,
       itemBuilder: (context, i) {
         final torta = listaFiltrada[i];
-        final String precioTexto = _obtenerPrecioTexto(torta);
-        final String? urlImagen = torta['imagenUrl'];
-
         return Container(
           height: 110,
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(15),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.04),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
-              )
-            ],
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 3))],
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(15),
@@ -301,14 +339,9 @@ class _ListaTortasState extends State<ListaTortas> {
               child: Row(
                 children: [
                   SizedBox(
-                    width: 110,
-                    height: 110,
-                    child: (urlImagen != null && urlImagen.isNotEmpty)
-                        ? Image.network(
-                            urlImagen,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) => _buildPlaceholderImage(categoria),
-                          )
+                    width: 110, height: 110,
+                    child: (torta['imagenUrl'] != null && torta['imagenUrl'].isNotEmpty)
+                        ? Image.network(torta['imagenUrl'], fit: BoxFit.cover, errorBuilder: (c, e, s) => _buildPlaceholderImage(categoria))
                         : _buildPlaceholderImage(categoria),
                   ),
                   Expanded(
@@ -316,41 +349,12 @@ class _ListaTortasState extends State<ListaTortas> {
                       padding: const EdgeInsets.all(12),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  torta['nombre'] ?? "Sin nombre",
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueGrey[800]),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              if (torta['coberturas'] != null && (torta['coberturas'] as List).isNotEmpty)
-                                const Padding(
-                                  padding: EdgeInsets.only(left: 4),
-                                  child: Icon(Icons.stars, color: Colors.orangeAccent, size: 16),
-                                ),
-                            ],
-                          ),
+                          Text(torta['nombre'] ?? "Sin nombre", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 4),
-                          Text(
-                            torta['descripcion'] ?? "Sin descripción",
-                            style: TextStyle(color: Colors.blueGrey[500], fontSize: 12, height: 1.2),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                          Text(torta['descripcion'] ?? "Sin descripción", maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.grey)),
                           const Spacer(),
-                          Text(
-                            precioTexto,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold, 
-                              color: azulPastelOscuro.withOpacity(0.9),
-                              fontSize: 14
-                            ),
-                          ),
+                          Text(_obtenerPrecioTexto(torta), style: const TextStyle(fontWeight: FontWeight.bold, color: azulPastelOscuro)),
                         ],
                       ),
                     ),

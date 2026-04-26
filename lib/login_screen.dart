@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -13,6 +14,13 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
 
   void _handleLogin() async {
+    if (_userController.text.isEmpty || _passController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Por favor, llena todos los campos")),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
     
     final usuario = await _authService.login(
@@ -23,20 +31,32 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = false);
 
     if (usuario != null) {
-      // Si el login es éxito, vamos a la pantalla principal
-      // Reemplaza 'HomeScreen' por el nombre de tu pantalla de inicio
-      Navigator.pushReplacementNamed(context, '/home'); 
+      final prefs = await SharedPreferences.getInstance();
+      
+      // CORRECCIÓN AQUÍ: Usando acceso por propiedades de objeto
+      await prefs.setInt('idUsuario', usuario.id); 
+      await prefs.setString('nombreCompleto', usuario.nombreCompleto ?? "Empleado");
+      await prefs.setString('username', usuario.username); 
+      await prefs.setString('rol', usuario.rol ?? "USER"); 
+
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/home'); 
+      }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Usuario o contraseña incorrectos")),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Usuario o contraseña incorrectos")),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    const Color azulPrincipal = Color(0xFFB3E5FC);
+
     return Scaffold(
-      backgroundColor: Colors.blue[50], // Fondo azul clarito
+      backgroundColor: const Color(0xFFF0F8FF),
       body: Center(
         child: SingleChildScrollView(
           child: Padding(
@@ -44,44 +64,49 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.cake, size: 100, color: Colors.blue[300]),
-                SizedBox(height: 20),
-                Text(
-                  "Pastelería Login",
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blue[900]),
+                const Icon(Icons.cake_rounded, size: 100, color: Color(0xFF81D4FA)),
+                const SizedBox(height: 10),
+                const Text(
+                  "Dulce Día",
+                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFF37474F)),
                 ),
-                SizedBox(height: 40),
+                const Text("Gestión de Pastelería", style: TextStyle(color: Colors.blueGrey)),
+                const SizedBox(height: 40),
                 TextField(
                   controller: _userController,
                   decoration: InputDecoration(
                     labelText: "Usuario",
+                    prefixIcon: const Icon(Icons.person_outline),
                     filled: true,
                     fillColor: Colors.white,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
                   ),
                 ),
-                SizedBox(height: 20),
+                const SizedBox(height: 20),
                 TextField(
                   controller: _passController,
                   obscureText: true,
                   decoration: InputDecoration(
                     labelText: "Contraseña",
+                    prefixIcon: const Icon(Icons.lock_outline),
                     filled: true,
                     fillColor: Colors.white,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
                   ),
                 ),
-                SizedBox(height: 30),
+                const SizedBox(height: 30),
                 _isLoading 
-                  ? CircularProgressIndicator()
+                  ? const CircularProgressIndicator(color: Color(0xFF81D4FA))
                   : ElevatedButton(
                       onPressed: _handleLogin,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue[300],
-                        padding: EdgeInsets.symmetric(horizontal: 100, vertical: 15),
+                        backgroundColor: azulPrincipal,
+                        foregroundColor: Colors.blueGrey[900],
+                        padding: const EdgeInsets.symmetric(horizontal: 80, vertical: 15),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                        elevation: 2,
                       ),
-                      child: Text("Entrar", style: TextStyle(color: Colors.white, fontSize: 18)),
+                      child: const Text("ENTRAR", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     ),
               ],
             ),

@@ -46,7 +46,7 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
     _cargarDatosIniciales();
   }
 
-  // --- CÁLCULO DE PRECIOS ---
+  // --- LÓGICA DE PRECIOS ---
   double _getPrecioFinal() {
     if (tamanoSeleccionado == null) return 0.0;
     double precioBase = double.tryParse(tamanoSeleccionado!['precio'].toString()) ?? 0.0;
@@ -65,11 +65,23 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
     return precioBase + precioExtra;
   }
 
-  String _obtenerSufijo(String nombre) {
-    nombre = nombre.toLowerCase();
-    return (nombre.contains("torta") || nombre.contains("pastel")) ? "personas" : "unidades";
+  // --- GENERADOR DE CÓDIGO EAN-13 (NUEVA VERSIÓN DOBLE) ---
+  String _generarCodigoParaMonto(double monto) {
+    if (tortaSeleccionada == null) return "200000000000";
+    
+    String prefijo = "20";
+    var valorCodigo = tortaSeleccionada!['codigoBarrasBase'] 
+                   ?? tortaSeleccionada!['codigo_barras_base'] 
+                   ?? tortaSeleccionada!['id'] 
+                   ?? 0;
+                   
+    String idPad = valorCodigo.toString().padLeft(5, '0');
+    String montoPad = monto.toInt().toString().padLeft(5, '0');
+    
+    return "$prefijo$idPad$montoPad"; 
   }
 
+  // --- MÉTODOS DE DATOS ---
   void _filtrarProductos(String categoria, {bool resetearSeleccion = true}) {
     setState(() {
       categoriaSeleccionada = categoria;
@@ -98,10 +110,10 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
             telefonoCtrl.text = p['telefono'] ?? "";
             
             String notasOriginales = p['notas'] ?? "";
-            notasCtrl.text = notasOriginales.split(']').last.trim();
+            notasCtrl.text = notasOriginales.contains(']') ? notasOriginales.split(']').last.trim() : notasOriginales;
 
             bloqueSeleccionado = p['bloqueHorario'] ?? "MAÑANA"; 
-            if (p['montoAbonado'] != null) abonoCtrl.text = p['montoAbonado'].toString();
+            if (p['montoAbonado'] != null) abonoCtrl.text = p['montoAbonado'].toInt().toString();
 
             tortaSeleccionada = todosLosProductos.firstWhere(
               (t) => t['id'] == p['torta']['id'],
@@ -127,41 +139,17 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
     }
   }
 
-  // --- GENERADOR DE CÓDIGO EAN-13 (ESTILO BALANZA COMERCIAL) ---
-  String _generarCodigoDeBalanza() {
-    if (tortaSeleccionada == null) return "200000000000";
-    
-    // Prefijo 20 (estándar para productos de precio/peso variable)
-    String prefijo = "20";
-    
-    // ID del producto a 5 dígitos (ej: 00012)
-    String idPad = tortaSeleccionada!['id'].toString().padLeft(5, '0');
-    
-    // Monto que falta pagar a 5 dígitos (ej: 04400)
-    double totalFinal = _getPrecioFinal();
-    double abonoIngresado = double.tryParse(abonoCtrl.text) ?? 0.0;
-    double loQueFalta = (totalFinal - abonoIngresado).clamp(0, 99999);
-    String precioPad = loQueFalta.toInt().toString().padLeft(5, '0');
-    
-    // Total 12 dígitos (El Widget añade automáticamente el dígito 13 de control)
-    return "$prefijo$idPad$precioPad"; 
-  }
-
   Future<void> _guardarPedido() async {
     if (nombreClienteCtrl.text.isEmpty || tortaSeleccionada == null || tamanoSeleccionado == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("⚠️ Completa Cliente, Producto y Tamaño"))
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("⚠️ Completa Cliente, Producto y Tamaño")));
       return;
     }
 
     final prefs = await SharedPreferences.getInstance();
-    final int? usuarioId = prefs.getInt('usuarioId'); 
+    final int? usuarioId = prefs.getInt('usuarioId') ?? prefs.getInt('idUsuario'); 
 
     final isEdit = widget.pedidoParaEditar != null;
-    final url = isEdit 
-      ? Uri.parse('$_baseUrl/pedidos/${widget.pedidoParaEditar!['id']}')
-      : Uri.parse('$_baseUrl/pedidos');
+    final url = Uri.parse(isEdit ? '$_baseUrl/pedidos/${widget.pedidoParaEditar!['id']}' : '$_baseUrl/pedidos');
 
     double total = _getPrecioFinal();
     double abono = double.tryParse(abonoCtrl.text) ?? 0.0;
@@ -243,7 +231,7 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
                   underline: const SizedBox(),
                   hint: Text("Elegir ${categoriaSeleccionada.toLowerCase()}"),
                   items: productosFiltrados.map((t) => DropdownMenuItem<Map<String, dynamic>>(
-                    value: t, child: Text(t['nombre'])
+                    value: Map<String, dynamic>.from(t), child: Text(t['nombre'])
                   )).toList(),
                   onChanged: (val) => setState(() { 
                     tortaSeleccionada = val; 
@@ -265,9 +253,8 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
                     hint: const Text("Elegir opción"),
                     items: (tortaSeleccionada!['tamanos'] as List).map((tam) {
                       String cap = tam['capacidad'].toString();
-                      String suf = _obtenerSufijo(tortaSeleccionada!['nombre']);
                       return DropdownMenuItem<Map<String, dynamic>>(
-                        value: tam, child: Text("$cap $suf - \$${tam['precio']}")
+                        value: Map<String, dynamic>.from(tam), child: Text("$cap - \$${tam['precio']}")
                       );
                     }).toList(),
                     onChanged: (val) => setState(() => tamanoSeleccionado = val),
@@ -327,7 +314,7 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
               const SizedBox(height: 30),
               if (tamanoSeleccionado != null) ...[
                 _buildResumenPago(),
-                if (isEdit) _buildCodigoBarras(),
+                _buildCodigosBarrasDoble(),
               ],
 
               const SizedBox(height: 30),
@@ -348,12 +335,10 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
     );
   }
 
-  // --- WIDGETS DE APOYO ---
-
   Widget _buildResumenPago() {
     double totalFinal = _getPrecioFinal();
     double abonoIngresado = double.tryParse(abonoCtrl.text) ?? 0.0;
-    double loQueFalta = totalFinal - abonoIngresado;
+    double loQueFalta = (totalFinal - abonoIngresado).clamp(0, 99999);
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -383,23 +368,51 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
     );
   }
 
-  Widget _buildCodigoBarras() {
+  // --- WIDGET DE CÓDIGOS DOBLES ---
+  Widget _buildCodigosBarrasDoble() {
+    double totalFinal = _getPrecioFinal();
+    double abonoIngresado = double.tryParse(abonoCtrl.text) ?? 0.0;
+    double loQueFalta = (totalFinal - abonoIngresado).clamp(0, 99999);
+
+    return Column(
+      children: [
+        const SizedBox(height: 20),
+        if (abonoIngresado > 0)
+          _cardCodigoIndividual(
+            titulo: "PASO 1: COBRAR ABONO AHORA",
+            monto: abonoIngresado,
+            color: Colors.green[700]!,
+            codigo: _generarCodigoParaMonto(abonoIngresado),
+          ),
+        const SizedBox(height: 20),
+        _cardCodigoIndividual(
+          titulo: loQueFalta > 0 ? "PASO 2: COBRAR SALDO AL ENTREGAR" : "PEDIDO PAGADO",
+          monto: loQueFalta,
+          color: loQueFalta > 0 ? Colors.orange[800]! : Colors.blueGrey,
+          codigo: _generarCodigoParaMonto(loQueFalta),
+        ),
+      ],
+    );
+  }
+
+  Widget _cardCodigoIndividual({required String titulo, required double monto, required Color color, required String codigo}) {
     return Container(
-      margin: const EdgeInsets.only(top: 20), 
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: azulPastelPrincipal, width: 2),
+        border: Border.all(color: color, width: 2),
       ),
       child: Column(
         children: [
-          const Text("ESCANEAR EN CAJA", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
-          const SizedBox(height: 15),
+          Text(titulo, style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 12)),
+          const SizedBox(height: 5),
+          Text("\$${monto.toInt()}", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+          const SizedBox(height: 10),
           BarcodeWidget(
             barcode: Barcode.ean13(),
-            data: _generarCodigoDeBalanza(),
-            width: double.infinity, height: 80,
+            data: codigo,
+            width: double.infinity, height: 70,
             drawText: true,
           ),
         ],
@@ -430,7 +443,6 @@ class _AgendarPedidoScreenState extends State<AgendarPedidoScreen> {
         labelText: label, prefixIcon: Icon(icon, color: azulPastelOscuro),
         filled: true, fillColor: Colors.white,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-        // Color sólido para evitar el warning de withOpacity
         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFE1F5FE))),
       ),
     );
